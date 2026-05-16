@@ -3,6 +3,7 @@ package control
 import (
 	"context"
 	"os"
+	"strings"
 
 	ckcontrol "github.com/openclaw/crawlkit/control"
 	"github.com/uinaf/fincrawl/internal/config"
@@ -10,6 +11,25 @@ import (
 )
 
 const syntheticArchiveRecipient = "age1n9zrm0rcxehv7cm55uqw27v9cguz4ev5dtyl7kxkn3vdpvap94ds2gn6rl"
+
+type StatusReport struct {
+	ckcontrol.Status
+	SyncStates []SyncStateStatus `json:"sync_states,omitempty"`
+}
+
+type SyncStateStatus struct {
+	ID                string `json:"id"`
+	Provider          string `json:"provider"`
+	CursorKind        string `json:"cursor_kind"`
+	State             string `json:"state"`
+	ResumeAvailable   bool   `json:"resume_available"`
+	HighWaterMark     string `json:"high_water_mark,omitempty"`
+	ActiveWindowStart string `json:"active_window_start,omitempty"`
+	ActiveWindowEnd   string `json:"active_window_end,omitempty"`
+	HasLastProviderID bool   `json:"has_last_provider_id,omitempty"`
+	HasPageCursor     bool   `json:"has_page_cursor,omitempty"`
+	UpdatedAt         string `json:"updated_at,omitempty"`
+}
 
 func Manifest(rt config.Runtime) ckcontrol.Manifest {
 	manifest := ckcontrol.NewManifest(config.AppID, config.DisplayName, "fincrawl")
@@ -40,8 +60,9 @@ func Manifest(rt config.Runtime) ckcontrol.Manifest {
 	return manifest
 }
 
-func Status(ctx context.Context, rt config.Runtime) ckcontrol.Status {
-	status := ckcontrol.NewStatus(config.AppID, "local archive status")
+func Status(ctx context.Context, rt config.Runtime) StatusReport {
+	report := StatusReport{Status: ckcontrol.NewStatus(config.AppID, "local archive status")}
+	status := &report.Status
 	status.State = "ready"
 	status.ConfigPath = rt.Paths.ConfigPath
 	status.DatabasePath = rt.Config.DBPath
@@ -54,13 +75,13 @@ func Status(ctx context.Context, rt config.Runtime) ckcontrol.Status {
 		if !os.IsNotExist(err) {
 			status.Warnings = append(status.Warnings, err.Error())
 		}
-		return status
+		return report
 	}
 	counts, err := store.Counts(ctx, rt.Config.DBPath)
 	if err != nil {
 		status.State = "warning"
 		status.Warnings = append(status.Warnings, err.Error())
-		return status
+		return report
 	}
 	status.Counts = []ckcontrol.Count{
 		ckcontrol.NewCount("conversations", "Conversations", counts.Conversations),
@@ -70,5 +91,37 @@ func Status(ctx context.Context, rt config.Runtime) ckcontrol.Status {
 	status.Databases = []ckcontrol.Database{
 		ckcontrol.SQLiteDatabase("primary", "Primary archive", "archive", rt.Config.DBPath, true, status.Counts),
 	}
-	return status
+	states, err := store.ListSyncStates(ctx, rt.Config.DBPath)
+	if err != nil {
+		status.State = "warning"
+		status.Warnings = append(status.Warnings, err.Error())
+		return report
+	}
+	report.SyncStates = syncStateStatuses(states)
+	return report
+}
+
+func syncStateStatuses(states []store.SyncState) []SyncStateStatus {
+	results := make([]SyncStateStatus, 0, len(states))
+	for _, state := range states {
+		active := strings.TrimSpace(state.ActiveWindowStart) != "" || strings.TrimSpace(state.ActiveWindowEnd) != ""
+		status := SyncStateStatus{
+			ID:                state.ID,
+			Provider:          state.Provider,
+			CursorKind:        state.CursorKind,
+			State:             "idle",
+			ResumeAvailable:   active,
+			HighWaterMark:     state.HighWaterMark,
+			ActiveWindowStart: state.ActiveWindowStart,
+			ActiveWindowEnd:   state.ActiveWindowEnd,
+			HasLastProviderID: strings.TrimSpace(state.LastProviderID) != "",
+			HasPageCursor:     strings.TrimSpace(state.PageCursor) != "",
+			UpdatedAt:         state.UpdatedAt,
+		}
+		if active {
+			status.State = "active"
+		}
+		results = append(results, status)
+	}
+	return results
 }

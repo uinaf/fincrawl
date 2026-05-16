@@ -52,6 +52,47 @@ func LoadSyncState(ctx context.Context, dbPath, id string) (SyncState, bool, err
 	return SyncState{}, false, err
 }
 
+func ListSyncStates(ctx context.Context, dbPath string) ([]SyncState, error) {
+	st, err := ckstore.OpenReadOnly(ctx, dbPath)
+	if err != nil {
+		return nil, err
+	}
+	defer st.Close()
+	var exists int
+	if err := st.DB().QueryRowContext(ctx, `select count(*) from sqlite_master where type = 'table' and name = 'sync_state'`).Scan(&exists); err != nil {
+		return nil, err
+	}
+	if exists == 0 {
+		return nil, nil
+	}
+	rows, err := st.DB().QueryContext(ctx, `select id, provider, cursor_kind, high_water_mark, active_window_start,
+		active_window_end, last_provider_id, page_cursor, updated_at
+		from sync_state order by provider, id`)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var states []SyncState
+	for rows.Next() {
+		var state SyncState
+		if err := rows.Scan(
+			&state.ID,
+			&state.Provider,
+			&state.CursorKind,
+			&state.HighWaterMark,
+			&state.ActiveWindowStart,
+			&state.ActiveWindowEnd,
+			&state.LastProviderID,
+			&state.PageCursor,
+			&state.UpdatedAt,
+		); err != nil {
+			return nil, err
+		}
+		states = append(states, state)
+	}
+	return states, rows.Err()
+}
+
 func SaveSyncState(ctx context.Context, dbPath string, state SyncState) error {
 	if state.ID == "" {
 		return fmt.Errorf("sync state id is required")

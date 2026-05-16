@@ -111,6 +111,12 @@ populate ignored `.env.local` with `op inject`; the CLI should not shell out to
 smoke tests and agent worktrees. This keeps CLI verification out of global user
 state without changing XDG settings used by developer tooling.
 
+`status --json` reports archive counts and privacy-safe sync-state visibility:
+provider, cursor kind, high-water mark, active window timestamps, resume
+availability, and booleans for whether opaque provider markers are present. It
+must not print provider conversation IDs, page cursors, credential sources, or
+tenant names.
+
 `sync --fixture` imports only synthetic data and is the main deterministic
 development path. It should exercise the same store and search code paths as
 provider sync.

@@ -69,6 +69,10 @@ continued with:
 FINCRAWL_HOME=/tmp/fincrawl-live-smoke go run ./cmd/fincrawl sync --resume --json
 ```
 
+`status --json` reports sync-state timestamps and resume availability. It only
+shows booleans for provider markers and page cursors; it does not print
+provider conversation IDs or opaque cursors.
+
 The default Intercom API version is `2.15`. Set
 `FINCRAWL_INTERCOM_BASE_URL` only for a regional Intercom API host and
 `FINCRAWL_INTERCOM_VERSION` only when intentionally testing another supported
