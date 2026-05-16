@@ -25,3 +25,21 @@ encrypted snapshots, and transcript-derived examples do not belong in this repo.
 Committed tests and fixtures must be fake or synthetic. Real tenant crawl state
 and generated artifacts belong in tenant-controlled private storage outside this
 repository, even when encrypted.
+
+## Current Offline Slice
+
+The bootstrapped CLI runs without live Intercom credentials:
+
+```bash
+go test ./...
+go run ./cmd/fincrawl doctor --offline --json
+go run ./cmd/fincrawl sync --fixture testdata/synthetic --json
+go run ./cmd/fincrawl search login --json
+go run ./cmd/fincrawl archive --fixture testdata/synthetic --recipient age1n9zrm0rcxehv7cm55uqw27v9cguz4ev5dtyl7kxkn3vdpvap94ds2gn6rl --out tmp/fincrawl-smoke.jsonl.zst.age --json
+go run ./cmd/fincrawl guard
+```
+
+Use `FINCRAWL_HOME=tmp/fincrawl-home` to keep local CLI smoke state inside the
+ignored repo `tmp/` directory. The archive command above uses a synthetic public
+age recipient for smoke tests only. The CLI may read ignored `.env.local` for
+`FINCRAWL_AGE_RECIPIENT`; it does not shell out to 1Password.

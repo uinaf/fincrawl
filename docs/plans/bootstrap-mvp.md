@@ -106,6 +106,10 @@ Credential lookup should read environment variables such as
 populate ignored `.env.local` with `op inject`; the CLI should not shell out to
 1Password itself in the first slice.
 
+`FINCRAWL_HOME` may point runtime state at an isolated local directory for
+smoke tests and agent worktrees. This keeps CLI verification out of global user
+state without changing XDG settings used by developer tooling.
+
 `sync --fixture` imports only synthetic data and is the main deterministic
 development path. It should exercise the same store and search code paths as
 provider sync.
