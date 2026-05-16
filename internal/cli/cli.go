@@ -168,6 +168,7 @@ type syncCmd struct {
 	Fixture      string `help:"Import synthetic fixture directory."`
 	UpdatedSince string `name:"updated-since" help:"Sync provider conversations updated since a duration or timestamp."`
 	Conversation string `help:"Hydrate one provider conversation ID."`
+	Resume       bool   `help:"Resume an interrupted Intercom updated-since sync window."`
 	Limit        int    `help:"Maximum provider conversations to hydrate for --updated-since. Use 0 for no limit." default:"50"`
 	JSON         bool   `help:"Print JSON output."`
 }
@@ -199,7 +200,7 @@ func (cmd syncCmd) Run(ctx commandContext) error {
 		}
 		return writeMaybeJSON(ctx.stdout, cmd.JSON, result)
 	}
-	if cmd.UpdatedSince != "" || cmd.Conversation != "" {
+	if cmd.UpdatedSince != "" || cmd.Conversation != "" || cmd.Resume {
 		if config.IntercomToken() == "" {
 			return fmt.Errorf("missing %s for live Intercom sync", config.EnvIntercomCred)
 		}
@@ -231,6 +232,8 @@ func (cmd syncCmd) Run(ctx commandContext) error {
 		var result store.SyncResult
 		if cmd.Conversation != "" {
 			result, err = s.SyncConversation(ctx, rt.Config.DBPath, cmd.Conversation)
+		} else if cmd.Resume {
+			result, err = s.ResumeTail(ctx, rt.Config.DBPath, cmd.Limit)
 		} else {
 			updatedAfter, err := parseSince(cmd.UpdatedSince, time.Now().UTC())
 			if err != nil {
@@ -248,18 +251,18 @@ func (cmd syncCmd) Run(ctx commandContext) error {
 
 func (cmd syncCmd) validateMode() error {
 	modes := 0
-	for _, enabled := range []bool{cmd.Fixture != "", cmd.UpdatedSince != "", cmd.Conversation != ""} {
+	for _, enabled := range []bool{cmd.Fixture != "", cmd.UpdatedSince != "", cmd.Conversation != "", cmd.Resume} {
 		if enabled {
 			modes++
 		}
 	}
 	if modes == 0 {
-		return output.UsageError{Err: fmt.Errorf("sync requires --fixture, --updated-since, or --conversation")}
+		return output.UsageError{Err: fmt.Errorf("sync requires --fixture, --updated-since, --conversation, or --resume")}
 	}
 	if modes > 1 {
-		return output.UsageError{Err: fmt.Errorf("sync accepts exactly one of --fixture, --updated-since, or --conversation")}
+		return output.UsageError{Err: fmt.Errorf("sync accepts exactly one of --fixture, --updated-since, --conversation, or --resume")}
 	}
-	if cmd.UpdatedSince != "" && cmd.Limit < 0 {
+	if (cmd.UpdatedSince != "" || cmd.Resume) && cmd.Limit < 0 {
 		return output.UsageError{Err: fmt.Errorf("--limit must be >= 0")}
 	}
 	return nil

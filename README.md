@@ -61,6 +61,14 @@ For a bounded recent crawl, prefer a short window and explicit limit:
 FINCRAWL_HOME=/tmp/fincrawl-live-smoke go run ./cmd/fincrawl sync --updated-since 2h --limit 5 --json
 ```
 
+When a limited or interrupted updated-since run leaves an active window in local
+SQLite, fresh updated-since runs are refused until the active window is
+continued with:
+
+```bash
+FINCRAWL_HOME=/tmp/fincrawl-live-smoke go run ./cmd/fincrawl sync --resume --json
+```
+
 The default Intercom API version is `2.15`. Set
 `FINCRAWL_INTERCOM_BASE_URL` only for a regional Intercom API host and
 `FINCRAWL_INTERCOM_VERSION` only when intentionally testing another supported

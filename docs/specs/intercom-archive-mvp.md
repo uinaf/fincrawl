@@ -33,6 +33,7 @@ fincrawl doctor
 fincrawl metadata --json
 fincrawl status --json
 fincrawl sync --updated-since 30d
+fincrawl sync --resume
 fincrawl sync --conversation <id>
 fincrawl search "billing refund" --json
 fincrawl conversations --fin --unresolved
@@ -183,6 +184,10 @@ sync. Query on `updated_at`, sort deterministically, page with
 `pages.next.starting_after`, and use a bounded lookback window. Store enough sync
 state to recover from interrupted runs and timestamp collisions: at minimum the
 successful high-water mark plus the last processed provider ID or page cursor.
+Bounded or interrupted active windows resume explicitly with
+`fincrawl sync --resume`; completing the window clears active state and advances
+the high-water mark. Starting a fresh tail window while active state exists is
+rejected unless an explicit abandon or force path is added later.
 
 Treat conversation parts as hydration data. Search/list endpoints identify
 changed conversations; retrieving a single conversation returns its

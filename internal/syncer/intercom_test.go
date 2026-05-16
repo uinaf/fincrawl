@@ -6,6 +6,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 
@@ -159,6 +160,164 @@ func TestSyncUpdatedSinceReportsWorkspaceForEmptyWindows(t *testing.T) {
 	}
 	if result.WorkspaceID != "intercom" {
 		t.Fatalf("workspace id = %q, want intercom", result.WorkspaceID)
+	}
+}
+
+func TestResumeTailContinuesAfterLimitedRun(t *testing.T) {
+	var retrieved []string
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		switch r.URL.Path {
+		case "/conversations/search":
+			w.Write([]byte(`{"conversations":[{"id":"conv_fake_1","updated_at":1770000300},{"id":"conv_fake_2","updated_at":1770000400}],"pages":{"next":{}}}`))
+		case "/conversations/conv_fake_1", "/conversations/conv_fake_2":
+			id := r.URL.Path[len("/conversations/"):]
+			retrieved = append(retrieved, id)
+			w.Write([]byte(`{
+				"id": "` + id + `",
+				"title": "Synthetic resume thread",
+				"state": "open",
+				"created_at": 1770000000,
+				"updated_at": 1770000300,
+				"conversation_parts": {"conversation_parts": []}
+			}`))
+		default:
+			t.Fatalf("unexpected path = %s", r.URL.Path)
+		}
+	}))
+	defer server.Close()
+	dbPath := filepath.Join(t.TempDir(), "fincrawl.db")
+	s := IntercomSyncer{
+		Client: intercom.Client{BaseURL: server.URL, Token: "fake-token", HTTPClient: server.Client()},
+		Now:    func() time.Time { return time.Unix(1770000000, 0) },
+	}
+	first, err := s.SyncUpdatedSince(context.Background(), dbPath, time.Unix(1769990000, 0), time.Unix(1770000500, 0), 1)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if first.Conversations != 1 {
+		t.Fatalf("first result = %#v", first)
+	}
+	state, ok, err := store.LoadSyncState(context.Background(), dbPath, store.IntercomTailSyncStateID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !ok || state.LastProviderID != "conv_fake_1" || state.ActiveWindowEnd == "" {
+		t.Fatalf("state after first run = %#v", state)
+	}
+	second, err := s.ResumeTail(context.Background(), dbPath, 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if second.Conversations != 1 {
+		t.Fatalf("second result = %#v", second)
+	}
+	if len(retrieved) != 2 || retrieved[0] != "conv_fake_1" || retrieved[1] != "conv_fake_2" {
+		t.Fatalf("retrieved = %#v", retrieved)
+	}
+	state, ok, err = store.LoadSyncState(context.Background(), dbPath, store.IntercomTailSyncStateID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !ok || state.ActiveWindowEnd != "" || state.LastProviderID != "" || state.HighWaterMark == "" {
+		t.Fatalf("state after resume = %#v", state)
+	}
+	counts, err := store.Counts(context.Background(), dbPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if counts.Conversations != 2 {
+		t.Fatalf("conversation count = %d, want 2", counts.Conversations)
+	}
+}
+
+func TestSyncUpdatedSinceRequiresResumeWhenActive(t *testing.T) {
+	dbPath := filepath.Join(t.TempDir(), "fincrawl.db")
+	if err := store.SaveSyncState(context.Background(), dbPath, store.SyncState{
+		ID:                store.IntercomTailSyncStateID,
+		ActiveWindowStart: "2026-05-16T10:00:00Z",
+		ActiveWindowEnd:   "2026-05-16T11:00:00Z",
+		LastProviderID:    "conv_fake_1",
+	}); err != nil {
+		t.Fatal(err)
+	}
+	s := IntercomSyncer{}
+	_, err := s.SyncUpdatedSince(context.Background(), dbPath, time.Unix(1769990000, 0), time.Unix(1770000500, 0), 1)
+	if err == nil || !strings.Contains(err.Error(), "sync --resume") {
+		t.Fatalf("expected resume-first error, got %v", err)
+	}
+	state, ok, err := store.LoadSyncState(context.Background(), dbPath, store.IntercomTailSyncStateID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !ok || state.ActiveWindowEnd == "" || state.LastProviderID != "conv_fake_1" {
+		t.Fatalf("state after rejected fresh window = %#v", state)
+	}
+}
+
+func TestResumeTailRequiresActiveState(t *testing.T) {
+	dbPath := filepath.Join(t.TempDir(), "fincrawl.db")
+	s := IntercomSyncer{}
+	if _, err := s.ResumeTail(context.Background(), dbPath, 1); err == nil {
+		t.Fatalf("expected missing active state error")
+	}
+}
+
+func TestResumeTailRejectsCorruptWindow(t *testing.T) {
+	dbPath := filepath.Join(t.TempDir(), "fincrawl.db")
+	if err := store.SaveSyncState(context.Background(), dbPath, store.SyncState{
+		ID:                store.IntercomTailSyncStateID,
+		ActiveWindowStart: "not-a-time",
+		ActiveWindowEnd:   "2026-05-16T11:00:00Z",
+	}); err != nil {
+		t.Fatal(err)
+	}
+	s := IntercomSyncer{}
+	if _, err := s.ResumeTail(context.Background(), dbPath, 1); err == nil {
+		t.Fatalf("expected corrupt active window error")
+	}
+}
+
+func TestResumeTailStopsWhenMarkerIsMissing(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		switch r.URL.Path {
+		case "/conversations/search":
+			w.Write([]byte(`{"conversations":[{"id":"conv_fake_2","updated_at":1770000400}],"pages":{"next":{}}}`))
+		default:
+			t.Fatalf("unexpected path = %s", r.URL.Path)
+		}
+	}))
+	defer server.Close()
+	dbPath := filepath.Join(t.TempDir(), "fincrawl.db")
+	if err := store.SaveSyncState(context.Background(), dbPath, store.SyncState{
+		ID:                store.IntercomTailSyncStateID,
+		ActiveWindowStart: "2026-05-16T10:00:00Z",
+		ActiveWindowEnd:   "2026-05-16T11:00:00Z",
+		LastProviderID:    "conv_missing",
+	}); err != nil {
+		t.Fatal(err)
+	}
+	s := IntercomSyncer{
+		Client: intercom.Client{BaseURL: server.URL, Token: "fake-token", HTTPClient: server.Client()},
+	}
+	_, err := s.ResumeTail(context.Background(), dbPath, 0)
+	if err == nil || !strings.Contains(err.Error(), "resume marker") {
+		t.Fatalf("expected missing resume marker error, got %v", err)
+	}
+	state, ok, err := store.LoadSyncState(context.Background(), dbPath, store.IntercomTailSyncStateID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !ok || state.ActiveWindowEnd == "" || state.LastProviderID != "conv_missing" || state.HighWaterMark != "" {
+		t.Fatalf("state after missing marker = %#v", state)
+	}
+	counts, err := store.Counts(context.Background(), dbPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if counts.Conversations != 0 {
+		t.Fatalf("conversation count = %d, want 0", counts.Conversations)
 	}
 }
 

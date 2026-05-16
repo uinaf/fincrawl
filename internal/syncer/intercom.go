@@ -24,6 +24,13 @@ type IntercomSyncer struct {
 	Now       func() time.Time
 }
 
+type TailSyncOptions struct {
+	UpdatedAfter  time.Time
+	UpdatedBefore time.Time
+	Limit         int
+	Resume        bool
+}
+
 func (s IntercomSyncer) SyncConversation(ctx context.Context, dbPath, conversationID string) (store.SyncResult, error) {
 	conversationID = strings.TrimSpace(conversationID)
 	if conversationID == "" {
@@ -41,16 +48,40 @@ func (s IntercomSyncer) SyncConversation(ctx context.Context, dbPath, conversati
 }
 
 func (s IntercomSyncer) SyncUpdatedSince(ctx context.Context, dbPath string, updatedAfter, updatedBefore time.Time, limit int) (store.SyncResult, error) {
-	var conversations []store.Conversation
-	cursor := ""
+	return s.SyncTail(ctx, dbPath, TailSyncOptions{UpdatedAfter: updatedAfter, UpdatedBefore: updatedBefore, Limit: limit})
+}
+
+func (s IntercomSyncer) ResumeTail(ctx context.Context, dbPath string, limit int) (store.SyncResult, error) {
+	return s.SyncTail(ctx, dbPath, TailSyncOptions{Limit: limit, Resume: true})
+}
+
+func (s IntercomSyncer) SyncTail(ctx context.Context, dbPath string, opts TailSyncOptions) (store.SyncResult, error) {
+	state, cursor, skipUntil, err := s.prepareTailState(ctx, dbPath, opts)
+	if err != nil {
+		return store.SyncResult{}, err
+	}
+	updatedAfter, updatedBefore, err := stateWindow(state)
+	if err != nil {
+		return store.SyncResult{}, err
+	}
+	var result store.SyncResult
+	result.WorkspaceID = s.workspace().ID
+	importedAny := false
 	for {
+		state.PageCursor = cursor
+		if err := store.SaveSyncState(ctx, dbPath, state); err != nil {
+			return store.SyncResult{}, err
+		}
 		page, err := s.searchConversations(ctx, updatedAfter, updatedBefore, cursor)
 		if err != nil {
 			return store.SyncResult{}, err
 		}
 		for _, item := range page.Conversations {
-			if limit > 0 && len(conversations) >= limit {
-				return store.SyncConversations(ctx, dbPath, s.workspace(), conversations)
+			if skipUntil != "" {
+				if item.ID == skipUntil {
+					skipUntil = ""
+				}
+				continue
 			}
 			conversation, err := s.retrieveConversation(ctx, item.ID)
 			if err != nil {
@@ -60,14 +91,95 @@ func (s IntercomSyncer) SyncUpdatedSince(ctx context.Context, dbPath string, upd
 			if err != nil {
 				return store.SyncResult{}, err
 			}
-			conversations = append(conversations, normalized)
+			importedAny = true
+			imported, err := store.SyncConversations(ctx, dbPath, s.workspace(), []store.Conversation{normalized})
+			if err != nil {
+				return store.SyncResult{}, err
+			}
+			result.Conversations += imported.Conversations
+			result.ConversationParts += imported.ConversationParts
+			result.RawBlobs += imported.RawBlobs
+			state.LastProviderID = item.ID
+			if err := store.SaveSyncState(ctx, dbPath, state); err != nil {
+				return store.SyncResult{}, err
+			}
+			if opts.Limit > 0 && result.Conversations >= opts.Limit {
+				return result, nil
+			}
+		}
+		if skipUntil != "" {
+			return store.SyncResult{}, fmt.Errorf("resume marker %q was not found in provider page; leaving active sync state unchanged", skipUntil)
 		}
 		if page.NextCursor == "" {
 			break
 		}
 		cursor = page.NextCursor
+		state.PageCursor = cursor
+		state.LastProviderID = ""
 	}
-	return store.SyncConversations(ctx, dbPath, s.workspace(), conversations)
+	if !importedAny {
+		empty, err := store.SyncConversations(ctx, dbPath, s.workspace(), nil)
+		if err != nil {
+			return store.SyncResult{}, err
+		}
+		result.WorkspaceID = empty.WorkspaceID
+	}
+	state.HighWaterMark = state.ActiveWindowEnd
+	state.ActiveWindowStart = ""
+	state.ActiveWindowEnd = ""
+	state.PageCursor = ""
+	state.LastProviderID = ""
+	if err := store.SaveSyncState(ctx, dbPath, state); err != nil {
+		return store.SyncResult{}, err
+	}
+	return result, nil
+}
+
+func (s IntercomSyncer) prepareTailState(ctx context.Context, dbPath string, opts TailSyncOptions) (store.SyncState, string, string, error) {
+	if opts.Limit < 0 {
+		return store.SyncState{}, "", "", fmt.Errorf("limit must be >= 0")
+	}
+	if opts.Resume {
+		state, ok, err := store.LoadSyncState(ctx, dbPath, store.IntercomTailSyncStateID)
+		if err != nil {
+			return store.SyncState{}, "", "", err
+		}
+		if !ok || state.ActiveWindowStart == "" || state.ActiveWindowEnd == "" {
+			return store.SyncState{}, "", "", fmt.Errorf("no active Intercom tail sync state to resume")
+		}
+		return state, state.PageCursor, state.LastProviderID, nil
+	}
+	if opts.UpdatedAfter.IsZero() || opts.UpdatedBefore.IsZero() {
+		return store.SyncState{}, "", "", fmt.Errorf("updated tail sync window is required")
+	}
+	previous, _, err := store.LoadSyncState(ctx, dbPath, store.IntercomTailSyncStateID)
+	if err != nil {
+		return store.SyncState{}, "", "", err
+	}
+	if previous.ActiveWindowStart != "" || previous.ActiveWindowEnd != "" {
+		return store.SyncState{}, "", "", fmt.Errorf("active Intercom tail sync state exists; run sync --resume before starting a new window")
+	}
+	state := store.SyncState{
+		ID:                store.IntercomTailSyncStateID,
+		Provider:          store.ProviderIntercom,
+		CursorKind:        "updated_at",
+		HighWaterMark:     previous.HighWaterMark,
+		ActiveWindowStart: opts.UpdatedAfter.UTC().Format(time.RFC3339),
+		ActiveWindowEnd:   opts.UpdatedBefore.UTC().Format(time.RFC3339),
+	}
+	return state, "", "", nil
+}
+
+func stateWindow(state store.SyncState) (time.Time, time.Time, error) {
+	start, err := time.Parse(time.RFC3339, state.ActiveWindowStart)
+	if err != nil {
+		return time.Time{}, time.Time{}, fmt.Errorf("parse active sync window start: %w", err)
+	}
+	end, err := time.Parse(time.RFC3339, state.ActiveWindowEnd)
+	if err != nil {
+		return time.Time{}, time.Time{}, fmt.Errorf("parse active sync window end: %w", err)
+	}
+	return start, end, nil
 }
 
 func (s IntercomSyncer) searchConversations(ctx context.Context, updatedAfter, updatedBefore time.Time, cursor string) (intercom.ConversationSearchResult, error) {

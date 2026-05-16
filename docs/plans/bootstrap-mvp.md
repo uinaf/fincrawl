@@ -25,6 +25,7 @@ fincrawl metadata --json
 fincrawl status --json
 fincrawl sync --fixture testdata/synthetic
 fincrawl sync --updated-since 2h
+fincrawl sync --resume
 fincrawl sync --conversation <id>
 fincrawl search "billing refund" --json
 fincrawl archive --fixture testdata/synthetic --recipient <age-recipient> --out <tmp>.jsonl.zst.age
@@ -115,8 +116,17 @@ development path. It should exercise the same store and search code paths as
 provider sync.
 
 `sync --updated-since` uses the Intercom search shape described in
-[Intercom API reference](../references/intercom-api.md). It is allowed to fail
-with a clear missing-credential diagnostic when no local token is present.
+[Intercom API reference](../references/intercom-api.md). It persists an active
+sync window before provider reads, writes hydrated conversations as they arrive,
+and leaves resumable state when `--limit` stops before the window completes. It
+is allowed to fail with a clear missing-credential diagnostic when no local
+token is present.
+
+`sync --resume` continues the active Intercom updated-since window from
+`sync_state`. It reuses the saved page cursor and last processed provider ID so
+an interrupted or intentionally bounded run does not skip rows in the active
+window. A completed window clears active state and advances the high-water mark.
+Fresh `sync --updated-since` runs are refused while active state exists.
 
 `sync --conversation` hydrates one provider conversation by ID and writes the
 same normalized rows and raw blobs as incremental sync. It is the exact-refresh
