@@ -1,6 +1,6 @@
 # Intercom Archive MVP
 
-Status: draft
+Status: active draft
 
 ## Purpose
 
@@ -61,6 +61,11 @@ The MVP stores:
 - Raw provider JSON for replay and migration debugging.
 - FTS over subject, body, parts, tags, assignees, and normalized participant
   names.
+
+The next implementation slice should make this scope useful before adding more
+distribution machinery: hydrate provider entities, normalize them into SQLite,
+and expose them through local search/status output without leaking opaque
+provider cursors or tenant identifiers.
 
 The MVP defers:
 
@@ -162,6 +167,11 @@ SQLite starts small and migration-friendly:
 - `raw_blobs`
 - `conversation_fts`
 
+Entity tables are provider-neutral where possible. Provider IDs are preserved in
+provider-specific columns for replay and exact hydration, but command output
+should prefer display names and stable local IDs unless a user explicitly asks
+for provider IDs.
+
 ## Sync Strategy
 
 Use three sync paths.
@@ -193,6 +203,18 @@ Treat conversation parts as hydration data. Search/list endpoints identify
 changed conversations; retrieving a single conversation returns its
 `conversation_parts` payload and supports `display_as=plaintext` for messages.
 Store the raw provider JSON alongside normalized searchable rows.
+
+Hydrate supporting entities through read-only provider APIs when scopes are
+available:
+
+- Admins and teams for assignee display, filtering, and future ownership
+  analysis.
+- Tags for searchable labels and conversation classification.
+- Contacts/users only to the minimal extent needed for search and display.
+
+Entity sync should tolerate unavailable scopes. Missing optional scopes should
+produce explicit diagnostics and partial local search, not force broad
+permissions or fail unrelated conversation sync.
 
 Intercom rate limiting should be budget-aware. Honor 429 responses, read
 `X-RateLimit-*` headers when present, throttle successful responses when
@@ -252,6 +274,15 @@ Subscriber flow:
 fincrawl subscribe <store-url>
 fincrawl search "login code expired"
 ```
+
+Publish/subscribe should come after local entity hydration is useful enough to
+carry across machines. The first publishable store should contain a manifest and
+encrypted snapshot artifacts only; runtime config, credentials, plaintext
+archives, local SQLite files, logs, and tenant reports remain outside the store.
+
+The subscriber path should import encrypted snapshots into local SQLite without
+requiring live Intercom credentials. Exact live hydration remains optional when
+credentials are present and a caller explicitly requests it.
 
 ## Verification
 

@@ -1,6 +1,6 @@
 # Bootstrap MVP Plan
 
-Status: draft
+Status: active
 
 ## Summary
 
@@ -9,6 +9,32 @@ implements synthetic fixture sync, SQLite + FTS search, Intercom sync shape,
 canonical JSONL output, zstd+age encrypted artifact generation, and commit
 guardrails. Git-backed publish/subscribe is designed but not implemented in this
 slice.
+
+The current bootstrapped repo has the first local archive path, live
+conversation hydration, resumable tail sync state, privacy-safe `status --json`,
+guardrails, and release automation. The next slice should avoid broadening the
+distribution surface until local search has richer entity context.
+
+## Next Slice
+
+Prioritize Intercom entity hydration and search quality:
+
+1. Add read-only Intercom client methods for admins, teams, tags, and minimal
+   contacts/users where the API scopes are available.
+2. Add migration-friendly SQLite tables and upserts for those entities, plus
+   join tables needed for conversations and tags.
+3. Normalize entity references during exact conversation hydration and tail sync
+   without requiring every optional scope to be present.
+4. Enrich FTS and `search --json` output with participant names, assignee/admin
+   names, tags, state, rating, and Fin-like metadata from synthetic fixtures.
+5. Expand live smoke commands to prove the read-only scope set locally, while
+   keeping all tenant output in ignored/private runtime state.
+6. Strengthen guardrails around generated examples and docs before adding
+   publish/subscribe import paths.
+
+Encrypted publish/subscribe follows this slice. Build it only after local search
+from hydrated SQLite is useful enough for agents and humans without live
+Intercom access.
 
 ## Implementation Plan
 
@@ -74,6 +100,10 @@ Implement these subsystems:
   provider-specific behavior out of crawlkit. Make the Intercom API version
   configurable with a pinned current default chosen at implementation time.
   Implement only supported REST API/export flows.
+- Intercom entities: list and store admins, teams, tags, and minimal contacts or
+  users when scopes allow. Treat unavailable optional scopes as degraded
+  capability with clear diagnostics, not as permission pressure to grant broad
+  write scopes. Never write entity examples copied from live tenant data.
 - Sync state: persist a successful high-water mark plus enough resume state to
   avoid skipped rows when a run dies halfway through or multiple conversations
   share the same timestamp. Use a small configurable lookback window for routine
@@ -86,6 +116,10 @@ Implement these subsystems:
   live credentials. Use read-only SQLite opens for read commands, an exclusive
   local lock for write commands, sanitized FTS queries, and a LIKE fallback when
   FTS is unavailable.
+- Search enrichment: index synthetic participant names, tags, assignees, state,
+  rating, and Fin-like fields. JSON results should be useful for agents while
+  staying privacy-aware: no credential source details, no opaque page cursors,
+  and no provider cursor state.
 - Archive: emit deterministic canonical JSONL from synthetic fixtures or local
   store records, then stream through zstd compression and age encryption to
   `.jsonl.zst.age` without writing plaintext intermediates. Implement this
@@ -138,6 +172,12 @@ Fresh `sync --updated-since` runs are refused while active state exists.
 same normalized rows and raw blobs as incremental sync. It is the exact-refresh
 path for cache misses and debugging.
 
+`sync --entities` or an equivalent internal step should hydrate read-only
+supporting entities before or alongside conversation sync. The first
+implementation may keep this hidden behind existing sync commands if that keeps
+the CLI simpler; the important contract is that entity hydration is repeatable,
+optional by scope, and backed by synthetic tests.
+
 `archive` writes encrypted artifacts only. It must not create plaintext JSONL or
 plaintext compressed files on disk, including temporary files.
 
@@ -165,6 +205,10 @@ payloads. Include same-timestamp updates, empty bodies, edited parts, closed and
 reopened conversations, assignee changes, tags, ratings, and Fin-like metadata
 with fake names and fake IDs.
 
+Entity fixtures should include fake admins, teams, tags, and contacts/users with
+stable fake IDs and display names. They should exercise missing optional entity
+lookups as well as complete entity joins.
+
 Architecture references to internalize before writing code:
 
 - [Intercom API reference](../references/intercom-api.md): public Intercom docs,
@@ -191,6 +235,15 @@ Architecture references to internalize before writing code:
 - Real tenant fixtures, logs, screenshots, reports, plaintext snapshots, or
   encrypted snapshots in this repo.
 
+## Next-Slice Non-Goals
+
+- Attachment byte download or storage.
+- Intercom writeback or mutation scopes.
+- Broad company enrichment or analytics warehouse export.
+- Git-backed publish/subscribe implementation before entity-backed local search
+  is useful.
+- Real tenant examples, even if encrypted or heavily redacted.
+
 ## Test Plan
 
 Add tests that use only synthetic data:
@@ -201,6 +254,10 @@ Add tests that use only synthetic data:
 - Intercom rate-limit handling for 429 responses and low remaining-budget
   headers.
 - Fixture sync into SQLite and FTS-backed `search --json`.
+- Entity hydration with fake admins, teams, tags, contacts/users, and missing
+  optional scopes.
+- Search enrichment for participant, tag, assignee, rating, state, and Fin-like
+  fields.
 - Canonical JSONL stability with deterministic fake records.
 - zstd+age artifact output by generating a temp age identity,
   decrypting/decompressing, and comparing JSONL bytes.
@@ -233,3 +290,17 @@ go run ./cmd/fincrawl guard
   committed.
 - Docs link to [Tenant data boundary](../tenant-data-boundary.md) and the
   [Intercom archive MVP](../specs/intercom-archive-mvp.md).
+
+## Next-Slice Acceptance Criteria
+
+- Synthetic entity sync writes admins, teams, tags, and minimal contacts/users
+  into SQLite.
+- Conversation sync links synthetic conversations to those entities where
+  present and behaves clearly when optional entity scopes are unavailable.
+- `search --json` returns richer local results from SQLite without live
+  Intercom access.
+- `status --json` remains privacy-safe and read-only.
+- Live/manual smoke can verify read-only entity scopes using ignored/private
+  runtime state only.
+- `./scripts/verify` and `fincrawl guard` pass without real credentials or
+  tenant data.

@@ -73,6 +73,19 @@ FINCRAWL_HOME=/tmp/fincrawl-live-smoke go run ./cmd/fincrawl sync --resume --jso
 shows booleans for provider markers and page cursors; it does not print
 provider conversation IDs or opaque cursors.
 
+## Next Implementation Slice
+
+The next implementation slice is entity hydration and useful local search:
+
+- Hydrate and normalize Intercom admins, teams, tags, and contacts/users where
+  the tenant-authorized token exposes them.
+- Enrich SQLite and FTS with participant, assignee, tag, rating, state, and
+  Fin-like metadata while keeping provider-specific raw JSON for replay.
+- Expand live smoke checks for those read-only scopes without writing tenant
+  config, logs, snapshots, or generated artifacts into this repo.
+- Prepare encrypted publish/subscribe after local search has enough entity
+  context to be useful on another machine.
+
 The default Intercom API version is `2.15`. Set
 `FINCRAWL_INTERCOM_BASE_URL` only for a regional Intercom API host and
 `FINCRAWL_INTERCOM_VERSION` only when intentionally testing another supported

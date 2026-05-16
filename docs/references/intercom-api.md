@@ -1,6 +1,6 @@
 # Intercom API Reference
 
-Last checked: 2026-05-16
+Last checked: 2026-05-17
 
 This is the repo-local reference for agents implementing Intercom support in
 `fincrawl`. It records public API links and extraction patterns only. Do not add
@@ -14,6 +14,11 @@ text, screenshots, logs, or generated artifacts here.
 - [List all conversations](https://developers.intercom.com/docs/references/rest-api/api.intercom.io/Conversations/listConversations/)
 - [Conversation schema](https://developers.intercom.com/docs/references/rest-api/api.intercom.io/Conversations/Conversation/)
 - [Conversation list item schema](https://developers.intercom.com/docs/references/rest-api/api.intercom.io/Conversations/ConversationListItem/)
+- [List admins](https://developers.intercom.com/docs/references/rest-api/api.intercom.io/Admins/listAdmins/)
+- [List teams](https://developers.intercom.com/docs/references/rest-api/api.intercom.io/Teams/listTeams/)
+- [List tags](https://developers.intercom.com/docs/references/rest-api/api.intercom.io/Tags/listTags/)
+- [List contacts](https://developers.intercom.com/docs/references/rest-api/api.intercom.io/Contacts/listContacts/)
+- [Retrieve a contact](https://developers.intercom.com/docs/references/rest-api/api.intercom.io/Contacts/retrieveContact/)
 - [Data export](https://developers.intercom.com/docs/references/rest-api/api.intercom.io/Data%20Export/)
 - [Cloud conversation export](https://www.intercom.com/help/en/articles/7029721-export-conversations-data-to-amazon-s3)
 - [Official OpenAPI repository](https://github.com/intercom/Intercom-OpenAPI)
@@ -52,6 +57,11 @@ Use `GET /conversations/{conversation_id}` for exact hydration. Conversation
 parts are hydration data, not a separate global stream. Store the raw provider
 JSON and normalize conversations, parts, participants, tags, assignees, ratings,
 and Fin metadata into SQLite.
+
+Hydrate admins, teams, tags, and minimal contacts/users through read-only API
+calls when scopes allow. Treat these as support entities for search and display,
+not as broad enrichment streams. Conversation sync should keep working with
+clear degraded diagnostics when optional entity scopes are absent.
 
 Prefer `display_as=plaintext` where Intercom supports it for searchable text,
 but preserve the raw provider response so migrations and replay can recover
@@ -96,5 +106,6 @@ Committed fixtures must be synthetic. Build fake conversations that exercise:
 - plaintext display bodies plus raw provider JSON
 - rate-limit headers and 429 responses
 - tags, admins, contacts, assignments, ratings, and Fin-like synthetic metadata
+- missing optional entity scopes and partial local search behavior
 
 Never paste real tenant JSON into this repo, even redacted or encrypted.
