@@ -44,14 +44,14 @@ value or tenant-specific item path.
 
 Use `op inject` for local environment files. Keep the committed
 [example env template](../.env.local.example) generic with
-`{{ op://<vault>/<item>/<field> }}` placeholders, then inject real local values
-into ignored `.env.local`:
+`{{ op://<vault>/<item>/<field> }}` placeholders. Copy it to an ignored local
+template, point that local template at real 1Password item fields, then inject
+real values into ignored `.env.local`:
 
 ```bash
-op inject -i .env.local.example -o .env.local
-set -a
-source .env.local
-set +a
+cp .env.local.example .env.local.tpl
+op inject -i .env.local.tpl -o .env.local
+chmod 600 .env.local
 ```
 
 The committed template must contain placeholder `op://<vault>/<item>/<field>`

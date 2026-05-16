@@ -13,7 +13,7 @@ import (
 	"time"
 )
 
-const DefaultAPIVersion = "2.13"
+const DefaultAPIVersion = "2.15"
 
 type Client struct {
 	BaseURL       string

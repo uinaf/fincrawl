@@ -80,20 +80,39 @@ func LoadFixture(path string) (Fixture, error) {
 }
 
 func SyncFixture(ctx context.Context, dbPath string, fixture Fixture) (SyncResult, error) {
+	return SyncConversations(ctx, dbPath, fixture.Workspace, fixture.Conversations)
+}
+
+func SyncConversations(ctx context.Context, dbPath string, workspace Workspace, conversations []Conversation) (SyncResult, error) {
 	st, err := ckstore.Open(ctx, ckstore.Options{Path: dbPath, Schema: Schema, SchemaVersion: SchemaVersion})
 	if err != nil {
 		return SyncResult{}, err
 	}
 	defer st.Close()
-	result := SyncResult{WorkspaceID: fixture.Workspace.ID}
+	if workspace.Provider == "" {
+		workspace.Provider = ProviderIntercom
+	}
+	if workspace.ID == "" {
+		workspace.ID = workspace.Provider
+	}
+	if workspace.Name == "" {
+		workspace.Name = workspace.ID
+	}
+	if workspace.CreatedAt == "" {
+		workspace.CreatedAt = time.Now().UTC().Format(time.RFC3339)
+	}
+	result := SyncResult{WorkspaceID: workspace.ID}
 	err = st.WithTx(ctx, func(tx *sql.Tx) error {
 		if _, err := tx.ExecContext(ctx, `insert into workspaces(id, provider, name, created_at) values(?, ?, ?, ?)
 			on conflict(id) do update set provider=excluded.provider, name=excluded.name, created_at=excluded.created_at`,
-			fixture.Workspace.ID, fixture.Workspace.Provider, fixture.Workspace.Name, fixture.Workspace.CreatedAt); err != nil {
+			workspace.ID, workspace.Provider, workspace.Name, workspace.CreatedAt); err != nil {
 			return fmt.Errorf("upsert workspace: %w", err)
 		}
-		for _, conversation := range fixture.Conversations {
-			if err := upsertConversation(ctx, tx, fixture.Workspace.ID, conversation, &result); err != nil {
+		for _, conversation := range conversations {
+			if conversation.Provider == "" {
+				conversation.Provider = workspace.Provider
+			}
+			if err := upsertConversation(ctx, tx, workspace.ID, conversation, &result); err != nil {
 				return err
 			}
 		}

@@ -40,6 +40,32 @@ ignored repo `tmp/` directory. The archive command above uses a synthetic public
 age recipient for smoke tests only. The CLI may read ignored `.env.local` for
 `FINCRAWL_AGE_RECIPIENT`; it does not shell out to 1Password.
 
+## Live Intercom Smoke
+
+Live sync is intentionally manual and local. Use a read-only Intercom app token
+from ignored `.env.local`; do not write tenant config or generated artifacts
+inside this repository.
+
+```bash
+cp .env.local.example .env.local.tpl
+op inject -i .env.local.tpl -o .env.local
+chmod 600 .env.local
+go run ./cmd/fincrawl doctor --offline --json
+FINCRAWL_HOME=/tmp/fincrawl-live-smoke go run ./cmd/fincrawl sync --conversation <synthetic-or-approved-test-id> --json
+FINCRAWL_HOME=/tmp/fincrawl-live-smoke go run ./cmd/fincrawl search "<query>" --json
+```
+
+For a bounded recent crawl, prefer a short window and explicit limit:
+
+```bash
+FINCRAWL_HOME=/tmp/fincrawl-live-smoke go run ./cmd/fincrawl sync --updated-since 2h --limit 5 --json
+```
+
+The default Intercom API version is `2.15`. Set
+`FINCRAWL_INTERCOM_BASE_URL` only for a regional Intercom API host and
+`FINCRAWL_INTERCOM_VERSION` only when intentionally testing another supported
+API version.
+
 ## Agent Workflow
 
 `./scripts/smoke` runs a fast offline CLI proof against synthetic fixtures.

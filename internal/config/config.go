@@ -16,6 +16,8 @@ const (
 	EnvHome         = "FINCRAWL_HOME"
 	EnvAgeRecipient = "FINCRAWL_AGE_RECIPIENT"
 	EnvIntercomCred = "FINCRAWL_INTERCOM_" + "TOKEN"
+	EnvIntercomBase = "FINCRAWL_INTERCOM_BASE_URL"
+	EnvIntercomVer  = "FINCRAWL_INTERCOM_VERSION"
 )
 
 var App = ckconfig.App{
@@ -80,6 +82,14 @@ func AgeRecipient() string {
 
 func IntercomToken() string {
 	return strings.TrimSpace(os.Getenv(EnvIntercomCred))
+}
+
+func IntercomBaseURL() string {
+	return strings.TrimSpace(os.Getenv(EnvIntercomBase))
+}
+
+func IntercomVersion() string {
+	return strings.TrimSpace(os.Getenv(EnvIntercomVer))
 }
 
 func LoadDotEnv(path string) error {

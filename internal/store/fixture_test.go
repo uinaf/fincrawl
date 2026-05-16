@@ -58,6 +58,19 @@ func TestSyncFixtureAndSearch(t *testing.T) {
 	}
 }
 
+func TestSyncConversationsDefaultsWorkspaceForEmptyImports(t *testing.T) {
+	ctx := context.Background()
+	dbPath := filepath.Join(t.TempDir(), "archive.db")
+
+	result, err := SyncConversations(ctx, dbPath, Workspace{}, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if result.WorkspaceID != ProviderIntercom {
+		t.Fatalf("workspace id = %q, want %q", result.WorkspaceID, ProviderIntercom)
+	}
+}
+
 func TestSanitizeFTSQuery(t *testing.T) {
 	got := SanitizeFTSQuery(`"login" OR billing:refund*`)
 	want := "login billing refund"
