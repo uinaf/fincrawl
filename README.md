@@ -94,5 +94,6 @@ enforces Conventional Commit subjects for semantic-release.
 
 Pushes and pull requests run the verify job in GitHub Actions. Pushes to `main`
 also run semantic-release; Conventional Commit messages decide whether a release
-is needed. When a release is published, GoReleaser builds `fincrawl` binaries
-for Linux, macOS, and Windows and appends them to the GitHub Release.
+is needed. During bootstrap, releasable commit types advance the patch-only
+`0.0.x` line. When a release is published, GoReleaser builds `fincrawl`
+binaries for Linux, macOS, and Windows and appends them to the GitHub Release.
