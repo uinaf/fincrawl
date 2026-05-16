@@ -1,0 +1,16 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+repo_root="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+cd "$repo_root"
+
+go mod tidy
+git diff --exit-code -- go.mod go.sum
+go test ./...
+go vet ./...
+go test -race ./...
+./scripts/smoke
+go run ./cmd/fincrawl guard --json
+git diff --check
+
+echo "verify ok"

@@ -39,3 +39,15 @@ func TestSyncRejectsMissingMode(t *testing.T) {
 		t.Fatalf("stdout = %q", stdout.String())
 	}
 }
+
+func TestVersionPrintsJSON(t *testing.T) {
+	var stdout bytes.Buffer
+	var stderr bytes.Buffer
+
+	if err := Run(context.Background(), []string{"version", "--json"}, &stdout, &stderr); err != nil {
+		t.Fatal(err)
+	}
+	if !bytes.Contains(stdout.Bytes(), []byte(`"version": "dev"`)) {
+		t.Fatalf("stdout = %q", stdout.String())
+	}
+}

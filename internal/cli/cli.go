@@ -11,6 +11,7 @@ import (
 	"github.com/alecthomas/kong"
 	"github.com/openclaw/crawlkit/output"
 	"github.com/uinaf/fincrawl/internal/archive"
+	"github.com/uinaf/fincrawl/internal/buildinfo"
 	"github.com/uinaf/fincrawl/internal/config"
 	"github.com/uinaf/fincrawl/internal/control"
 	"github.com/uinaf/fincrawl/internal/guard"
@@ -26,6 +27,7 @@ type app struct {
 	Search   searchCmd   `cmd:"" help:"Search the local archive."`
 	Archive  archiveCmd  `cmd:"" help:"Write compressed age-encrypted archive output."`
 	Guard    guardCmd    `cmd:"" help:"Check commit guardrails."`
+	Version  versionCmd  `cmd:"" help:"Print version information."`
 }
 
 type commandContext struct {
@@ -300,6 +302,19 @@ func (cmd guardCmd) Run(ctx commandContext) error {
 	if !result.OK {
 		return fmt.Errorf("guard failed with %d finding(s)", len(result.Findings))
 	}
+	return nil
+}
+
+type versionCmd struct {
+	JSON bool `help:"Print JSON output."`
+}
+
+func (cmd versionCmd) Run(ctx commandContext) error {
+	info := buildinfo.Current()
+	if cmd.JSON {
+		return output.Write(ctx.stdout, output.JSON, "version", info)
+	}
+	fmt.Fprintln(ctx.stdout, info.Version)
 	return nil
 }
 
