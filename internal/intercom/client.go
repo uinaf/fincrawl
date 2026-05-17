@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"net/http"
@@ -24,6 +25,8 @@ type Client struct {
 	Sleep         func(context.Context, time.Duration) error
 	Now           func() time.Time
 	ThrottleBelow int
+	MaxAttempts   int
+	RetryBackoff  time.Duration
 }
 
 type ConversationListItem struct {
@@ -178,48 +181,93 @@ func (c Client) doJSON(ctx context.Context, method, path string, query url.Value
 	if len(query) > 0 {
 		u.RawQuery = query.Encode()
 	}
-	var body io.Reader
+	var bodyData []byte
 	if requestBody != nil {
 		data, err := json.Marshal(requestBody)
 		if err != nil {
 			return err
 		}
-		body = bytes.NewReader(data)
+		bodyData = data
 	}
-	req, err := http.NewRequestWithContext(ctx, method, u.String(), body)
-	if err != nil {
-		return err
-	}
-	req.Header.Set("Accept", "application/json")
-	req.Header.Set("Content-Type", "application/json")
 	version := c.Version
 	if version == "" {
 		version = DefaultAPIVersion
-	}
-	req.Header.Set("Intercom-Version", version)
-	if c.Token != "" {
-		req.Header.Set("Authorization", "Bearer "+c.Token)
 	}
 	client := c.HTTPClient
 	if client == nil {
 		client = http.DefaultClient
 	}
-	resp, err := client.Do(req)
-	if err != nil {
+	attempts := c.MaxAttempts
+	if attempts <= 0 {
+		attempts = 1
+	}
+	for attempt := 1; attempt <= attempts; attempt++ {
+		var body io.Reader
+		if bodyData != nil {
+			body = bytes.NewReader(bodyData)
+		}
+		req, err := http.NewRequestWithContext(ctx, method, u.String(), body)
+		if err != nil {
+			return err
+		}
+		req.Header.Set("Accept", "application/json")
+		req.Header.Set("Content-Type", "application/json")
+		req.Header.Set("Intercom-Version", version)
+		if c.Token != "" {
+			req.Header.Set("Authorization", "Bearer "+c.Token)
+		}
+		resp, err := client.Do(req)
+		if err != nil {
+			if attempt < attempts && shouldRetryError(err) {
+				if sleepErr := c.sleep(ctx, retryDelay(c.RetryBackoff, attempt)); sleepErr != nil {
+					return sleepErr
+				}
+				continue
+			}
+			return err
+		}
+		if resp.StatusCode == http.StatusTooManyRequests {
+			delay := retryAfter(resp.Header, c.now())
+			resp.Body.Close()
+			return RateLimitError{StatusCode: resp.StatusCode, RetryAfter: delay}
+		}
+		if resp.StatusCode >= 500 && resp.StatusCode <= 599 && attempt < attempts {
+			io.Copy(io.Discard, io.LimitReader(resp.Body, 4096))
+			resp.Body.Close()
+			if sleepErr := c.sleep(ctx, retryDelay(c.RetryBackoff, attempt)); sleepErr != nil {
+				return sleepErr
+			}
+			continue
+		}
+		if resp.StatusCode < 200 || resp.StatusCode >= 300 {
+			body, _ := io.ReadAll(io.LimitReader(resp.Body, 4096))
+			resp.Body.Close()
+			return HTTPStatusError{Method: method, Path: path, StatusCode: resp.StatusCode, Body: strings.TrimSpace(string(body))}
+		}
+		if err := c.maybeThrottle(ctx, resp.Header); err != nil {
+			resp.Body.Close()
+			return err
+		}
+		err = json.NewDecoder(resp.Body).Decode(responseBody)
+		resp.Body.Close()
 		return err
 	}
-	defer resp.Body.Close()
-	if resp.StatusCode == http.StatusTooManyRequests {
-		return RateLimitError{StatusCode: resp.StatusCode, RetryAfter: retryAfter(resp.Header, c.now())}
+	return nil
+}
+
+func shouldRetryError(err error) bool {
+	var netErr interface{ Timeout() bool }
+	return errors.As(err, &netErr) && netErr.Timeout()
+}
+
+func retryDelay(base time.Duration, attempt int) time.Duration {
+	if base <= 0 {
+		base = time.Second
 	}
-	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
-		body, _ := io.ReadAll(io.LimitReader(resp.Body, 4096))
-		return HTTPStatusError{Method: method, Path: path, StatusCode: resp.StatusCode, Body: strings.TrimSpace(string(body))}
+	if attempt <= 1 {
+		return base
 	}
-	if err := c.maybeThrottle(ctx, resp.Header); err != nil {
-		return err
-	}
-	return json.NewDecoder(resp.Body).Decode(responseBody)
+	return time.Duration(attempt) * base
 }
 
 func decodeEntitiesPage(raw json.RawMessage, keys ...string) ([]Entity, string, error) {
@@ -355,6 +403,23 @@ func (c Client) maybeThrottle(ctx context.Context, header http.Header) error {
 		delay = 1500 * time.Millisecond
 	}
 	return c.Sleep(ctx, delay)
+}
+
+func (c Client) sleep(ctx context.Context, delay time.Duration) error {
+	if delay <= 0 {
+		return nil
+	}
+	if c.Sleep != nil {
+		return c.Sleep(ctx, delay)
+	}
+	timer := time.NewTimer(delay)
+	defer timer.Stop()
+	select {
+	case <-ctx.Done():
+		return ctx.Err()
+	case <-timer.C:
+		return nil
+	}
 }
 
 func (c Client) now() time.Time {

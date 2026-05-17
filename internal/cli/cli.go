@@ -44,7 +44,7 @@ type commandContext struct {
 	stderr io.Writer
 }
 
-const liveHTTPTimeout = 30 * time.Second
+const liveHTTPTimeout = 90 * time.Second
 
 func Run(ctx context.Context, args []string, stdout, stderr io.Writer) error {
 	var cli app
@@ -272,10 +272,12 @@ func (cmd syncCmd) Run(ctx commandContext) error {
 		}
 		defer lck.Release()
 		client := intercom.Client{
-			BaseURL:    config.IntercomBaseURL(),
-			Token:      config.IntercomToken(),
-			Version:    config.IntercomVersion(),
-			HTTPClient: &http.Client{Timeout: liveHTTPTimeout},
+			BaseURL:      config.IntercomBaseURL(),
+			Token:        config.IntercomToken(),
+			Version:      config.IntercomVersion(),
+			HTTPClient:   &http.Client{Timeout: liveHTTPTimeout},
+			MaxAttempts:  3,
+			RetryBackoff: 2 * time.Second,
 			Sleep: func(ctx context.Context, d time.Duration) error {
 				timer := time.NewTimer(d)
 				defer timer.Stop()
