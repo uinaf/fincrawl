@@ -213,6 +213,44 @@ func TestRateLimitHandlingUsesResetHeader(t *testing.T) {
 	}
 }
 
+func TestSearchConversationsRetriesTransientServerErrors(t *testing.T) {
+	var requests int
+	var slept time.Duration
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		requests++
+		w.Header().Set("Content-Type", "application/json")
+		if requests == 1 {
+			http.Error(w, "try again", http.StatusBadGateway)
+			return
+		}
+		w.Write([]byte(`{"conversations":[{"id":"conversation_1","updated_at":1770000000}],"pages":{"next":{}}}`))
+	}))
+	defer server.Close()
+	client := Client{
+		BaseURL:      server.URL,
+		HTTPClient:   server.Client(),
+		MaxAttempts:  2,
+		RetryBackoff: 7 * time.Millisecond,
+		Sleep: func(ctx context.Context, d time.Duration) error {
+			slept = d
+			return nil
+		},
+	}
+	result, err := client.SearchConversations(context.Background(), time.Unix(1, 0), time.Unix(2, 0), "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if requests != 2 {
+		t.Fatalf("requests = %d, want 2", requests)
+	}
+	if slept != 7*time.Millisecond {
+		t.Fatalf("sleep = %s, want 7ms", slept)
+	}
+	if len(result.Conversations) != 1 {
+		t.Fatalf("conversations = %#v", result.Conversations)
+	}
+}
+
 func TestLowRemainingBudgetSleepsUntilReset(t *testing.T) {
 	now := time.Unix(100, 0)
 	var slept time.Duration
