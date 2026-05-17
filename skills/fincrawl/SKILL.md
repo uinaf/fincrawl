@@ -55,6 +55,8 @@ issues, docs, logs, or fixtures.
   streamed result handling.
 - Use `--dry-run` before live sync or archive writes unless the user already
   asked for the side effect.
+- Use `publish --dry-run` before writing encrypted snapshots and
+  `import --dry-run` before hydrating local SQLite from a snapshot.
 - Treat transcript bodies, contact names, ratings, tags, and raw provider JSON as
   tenant-private.
 - Do not run broad crawling unless explicitly asked.

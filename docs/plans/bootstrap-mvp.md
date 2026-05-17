@@ -7,34 +7,85 @@ Status: active
 Bootstrap `fincrawl` as a Go local-first support archive CLI. The first slice
 implements synthetic fixture sync, SQLite + FTS search, Intercom sync shape,
 canonical JSONL output, zstd+age encrypted artifact generation, and commit
-guardrails. Git-backed publish/subscribe is designed but not implemented in this
-slice.
+guardrails. Local encrypted snapshot publish/import is implemented for local
+store portability; Git-backed publish/push/subscribe remains designed but out
+of scope for this slice.
 
 The current bootstrapped repo has the first local archive path, live
 conversation hydration, read-only entity hydration, resumable tail sync state,
-privacy-safe `status --json`, guardrails, and release automation. The next
-slice should avoid broadening the distribution surface until local search has
-richer entity context.
+privacy-safe `status --json`, DB-backed encrypted `publish`, encrypted
+`import`, guardrails, and release automation. Tenant-controlled stores can wrap
+`publish` and `import` locally for real encrypted artifacts, but remote
+push/pull/subscriber automation stays deferred until the local loop has run for
+a while.
 
 ## Next Slice
 
-Prioritize the remaining local usability work around Intercom entity hydration
-and search quality:
+Prioritize crawl readiness and the remaining local usability work around
+Intercom entity hydration, search quality, and local tenant-store ergonomics:
 
-1. Keep `sync --entities` as the explicit local command for admins, teams, tags,
-   and capped contacts/users where API scopes are available.
-2. Normalize more conversation entity references during exact hydration and tail
-   sync without requiring every optional scope to be present.
-3. Enrich search ranking and result display from the stored entity tables after
+1. Prove the real local encrypted loop in tenant-controlled storage: publish an
+   encrypted snapshot, configure a local decrypt identity outside Git, import
+   into a scratch `FINCRAWL_HOME`, and search from that imported SQLite archive
+   without live Intercom access.
+2. Commit and push the generic `uinaf/fincrawl` implementation separately from
+   any tenant-store wrappers, docs, or encrypted tenant artifacts.
+3. Commit tenant-store helper scripts and docs separately. Decide tenant-side
+   whether the first encrypted snapshot is kept as a local proof artifact or
+   committed to tenant-controlled private storage.
+4. Run the first bounded real crawl locally: hydrate entities, run a short
+   updated-since window with a conservative limit, publish an encrypted
+   snapshot, and confirm search still works from local SQLite.
+5. Keep `sync --entities` as the explicit local command for admins, teams,
+   tags, and capped contacts/users where API scopes are available.
+6. Normalize more conversation entity references during exact hydration and
+   tail sync without requiring every optional scope to be present.
+7. Enrich search ranking and result display from the stored entity tables after
    enough synthetic edge cases exist.
-4. Expand live smoke commands to prove the read-only scope set locally, while
+8. Add a local periodic crawl/publish routine in tenant-controlled storage,
+   guarded by dry-run defaults and explicit execute flags.
+9. Expand live smoke commands to prove the read-only scope set locally, while
    keeping all tenant output in ignored/private runtime state.
-5. Strengthen guardrails around generated examples and docs before adding
-   publish/subscribe import paths.
 
-Encrypted publish/subscribe follows this slice. Build it only after local search
-from hydrated SQLite is useful enough for agents and humans without live
-Intercom access.
+Remote encrypted publish/subscribe follows this local slice. Build it only
+after local search from hydrated SQLite is useful enough for agents and humans
+without live Intercom access.
+
+## Current Local Operation State
+
+The local flow is:
+
+```bash
+fincrawl sync --updated-since 2h --limit 50
+fincrawl publish --recipient <age-recipient> --out snapshots/latest.jsonl.zst.age
+FINCRAWL_HOME=<scratch-home> fincrawl import --identity <age-identity> --in snapshots/latest.jsonl.zst.age
+FINCRAWL_HOME=<scratch-home> fincrawl search "login code expired" --json
+```
+
+`publish` may run with a public age recipient or SSH public key. `import`
+requires a private age identity or supported SSH private key via
+`FINCRAWL_AGE_IDENTITY` or `--identity`; even `--dry-run` decrypts the snapshot
+so it can validate records and report counts. Real tenant snapshots and
+identities must live only in tenant-controlled private storage.
+
+Before broad tenant crawling, complete this readiness sequence:
+
+```bash
+# In tenant-controlled storage, not in uinaf/fincrawl:
+# 1. Add FINCRAWL_AGE_IDENTITY to the ignored local env file.
+scripts/import-local snapshots/latest.jsonl.zst.age
+FINCRAWL_IMPORT_EXECUTE=1 FINCRAWL_HOME=/tmp/fincrawl-import-test scripts/import-local snapshots/latest.jsonl.zst.age
+FINCRAWL_HOME=/tmp/fincrawl-import-test scripts/fincrawl search "login code expired" --json
+
+# Then run the first bounded crawl locally:
+scripts/fincrawl sync --entities
+scripts/fincrawl sync --updated-since 2h --limit 50
+FINCRAWL_PUBLISH_EXECUTE=1 scripts/publish-local
+```
+
+The bounded crawl may use a tenant token, but all generated state, logs, and
+snapshots remain in tenant-controlled private storage. Do not copy command
+output or real search snippets back into `uinaf/fincrawl` docs or fixtures.
 
 ## Implementation Plan
 
@@ -57,6 +108,8 @@ fincrawl sync --entities
 fincrawl sync --entities --contacts --limit 10
 fincrawl search "billing refund" --json
 fincrawl archive --fixture testdata/synthetic --recipient <age-recipient> --out <tmp>.jsonl.zst.age
+fincrawl publish --recipient <age-recipient> --out snapshots/local.jsonl.zst.age
+fincrawl import --in snapshots/local.jsonl.zst.age
 fincrawl guard
 ```
 
@@ -77,9 +130,9 @@ Implement the first slice in this order:
    tables.
 4. Search: add FTS population, FTS query sanitization, LIKE fallback, and
    `search --json` over synthetic fixture data.
-5. Canonical archive writer: serialize deterministic JSONL from fixture or
-   store records, stream through zstd and age, and verify decrypt plus
-   decompress round trips without plaintext intermediates.
+5. Canonical archive writer and importer: serialize deterministic JSONL from
+   fixture or store records, stream through zstd and age, and verify decrypt
+   plus decompress/import round trips without plaintext intermediates.
 6. Intercom client shape: implement the provider boundary with `httptest`
    coverage for search pagination, exact hydration, rate limiting, and
    resumable incremental state. Live credentials remain optional and local.
@@ -187,8 +240,20 @@ explicit and capped with `--contacts --limit N`. The command tolerates
 unavailable optional scopes by returning warnings and importing the entity types
 that are available.
 
-`archive` writes encrypted artifacts only. It must not create plaintext JSONL or
-plaintext compressed files on disk, including temporary files.
+`archive` writes encrypted artifacts from synthetic fixtures only. It must not
+create plaintext JSONL or plaintext compressed files on disk, including
+temporary files.
+
+`publish` writes encrypted artifacts from the local SQLite archive. It reads
+normalized tables and raw blobs, emits canonical JSONL, compresses with zstd,
+and encrypts with age. It requires an explicit `.jsonl.zst.age` relative output
+path and accepts `FINCRAWL_AGE_RECIPIENT`.
+
+`import` reads a `.jsonl.zst.age` snapshot, decrypts it with
+`FINCRAWL_AGE_IDENTITY` or an explicit `--identity`, then hydrates local SQLite
+without live Intercom access. Use `--dry-run` to validate the snapshot and count
+records without writing local state. Dry-run still requires the decrypt identity
+because it validates the encrypted contents rather than only checking the path.
 
 `guard` is both a developer command and a future CI/pre-commit command. It scans
 the Git index and worktree candidates, including untracked files, before commit.
@@ -270,6 +335,8 @@ Add tests that use only synthetic data:
 - Canonical JSONL stability with deterministic fake records.
 - zstd+age artifact output by generating a temp age identity,
   decrypting/decompressing, and comparing JSONL bytes.
+- Encrypted publish/import round trip from one synthetic SQLite archive into a
+  fresh local SQLite archive.
 - Store lock behavior for write commands and read-only DB behavior for read
   commands.
 - FTS query sanitization and LIKE fallback behavior.
@@ -279,15 +346,24 @@ Add tests that use only synthetic data:
 Run before handoff:
 
 ```bash
-GOWORK=off go mod tidy
-git diff --exit-code -- go.mod go.sum
-GOWORK=off go vet ./...
-GOWORK=off go test -count=1 ./...
-GOWORK=off go test -race ./...
-go run ./cmd/fincrawl doctor --offline
-go run ./cmd/fincrawl archive --fixture testdata/synthetic --recipient <age-recipient> --out <tmp>.jsonl.zst.age
-go run ./cmd/fincrawl guard
+./scripts/verify
+./scripts/release-check
 ```
+
+For ad-hoc local work, `mise` wraps the same scripts and common Go commands:
+
+```bash
+mise trust mise.toml
+mise tasks
+mise run fixture-loop
+mise run test
+mise run guard
+mise run verify
+```
+
+For local tenant-store proof, run the tenant-controlled wrapper scripts or the
+equivalent CLI commands with ignored/private env files. Keep generated
+encrypted snapshots out of `uinaf/fincrawl`.
 
 ## Acceptance Criteria
 
@@ -295,6 +371,11 @@ go run ./cmd/fincrawl guard
 - Synthetic fixture sync produces local searchable conversations.
 - Search works from SQLite without live Intercom access.
 - Archive output is encrypted and compressed with the `.jsonl.zst.age` shape.
+- Local publish/import can move encrypted synthetic SQLite state without live
+  Intercom access.
+- Local tenant-controlled publish/import can move a real encrypted snapshot into
+  a scratch `FINCRAWL_HOME` once the private decrypt identity is configured
+  outside Git.
 - Guardrails fail before tenant data, plaintext archives, or secrets can be
   committed.
 - Docs link to [Tenant data boundary](../tenant-data-boundary.md) and the
@@ -309,6 +390,9 @@ go run ./cmd/fincrawl guard
 - `search --json` returns richer local results from SQLite without live
   Intercom access.
 - `status --json` remains privacy-safe and read-only.
+- Local encrypted `publish` works from the hydrated SQLite archive.
+- Local encrypted `import` works after a decrypt identity is configured outside
+  Git, and imported archives are searchable without live Intercom access.
 - Live/manual smoke can verify read-only entity scopes using ignored/private
   runtime state only.
 - `./scripts/verify` and `fincrawl guard` pass without real credentials or

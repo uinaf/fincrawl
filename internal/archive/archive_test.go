@@ -2,14 +2,20 @@ package archive
 
 import (
 	"bytes"
+	"crypto/ed25519"
+	"crypto/rand"
+	"crypto/x509"
+	"encoding/pem"
 	"io"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"filippo.io/age"
 	"github.com/klauspost/compress/zstd"
 	"github.com/uinaf/fincrawl/internal/store"
+	"golang.org/x/crypto/ssh"
 )
 
 func TestWriteEncryptedJSONLRoundTrip(t *testing.T) {
@@ -50,6 +56,85 @@ func TestWriteEncryptedJSONLRoundTrip(t *testing.T) {
 	}
 	if !bytes.Equal(decrypted, plain) {
 		t.Fatalf("decrypted JSONL mismatch")
+	}
+}
+
+func TestReadEncryptedJSONLRoundTrip(t *testing.T) {
+	fixture, err := store.LoadFixture(filepath.Join("..", "..", "testdata", "synthetic"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	records := FixtureRecords(fixture)
+	identity, err := age.GenerateX25519Identity()
+	if err != nil {
+		t.Fatal(err)
+	}
+	out := filepath.Join(t.TempDir(), "archive.jsonl.zst.age")
+	if err := WriteEncryptedJSONL(out, identity.Recipient().String(), records); err != nil {
+		t.Fatal(err)
+	}
+	got, err := ReadEncryptedJSONL(out, identity.String())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(got) != len(records) {
+		t.Fatalf("records = %d, want %d", len(got), len(records))
+	}
+	if got[0].SchemaVersion != SchemaVersion {
+		t.Fatalf("schema version = %q", got[0].SchemaVersion)
+	}
+}
+
+func TestReadEncryptedJSONLRoundTripWithSSHIdentity(t *testing.T) {
+	fixture, err := store.LoadFixture(filepath.Join("..", "..", "testdata", "synthetic"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	records := FixtureRecords(fixture)
+	publicKey, privateKey, err := ed25519.GenerateKey(rand.Reader)
+	if err != nil {
+		t.Fatal(err)
+	}
+	sshPublicKey, err := ssh.NewPublicKey(publicKey)
+	if err != nil {
+		t.Fatal(err)
+	}
+	privateDER, err := x509.MarshalPKCS8PrivateKey(privateKey)
+	if err != nil {
+		t.Fatal(err)
+	}
+	privatePEM := pem.EncodeToMemory(&pem.Block{Type: "PRIVATE KEY", Bytes: privateDER})
+	out := filepath.Join(t.TempDir(), "archive.jsonl.zst.age")
+	if err := WriteEncryptedJSONL(out, strings.TrimSpace(string(ssh.MarshalAuthorizedKey(sshPublicKey))), records); err != nil {
+		t.Fatal(err)
+	}
+	got, err := ReadEncryptedJSONL(out, string(privatePEM))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(got) != len(records) {
+		t.Fatalf("records = %d, want %d", len(got), len(records))
+	}
+}
+
+func TestRecordsFixtureRoundTrip(t *testing.T) {
+	fixture, err := store.LoadFixture(filepath.Join("..", "..", "testdata", "synthetic"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	records := FixtureRecords(fixture)
+	got, err := RecordsFixture(records)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got.Workspace.ID != fixture.Workspace.ID {
+		t.Fatalf("workspace ID = %q, want %q", got.Workspace.ID, fixture.Workspace.ID)
+	}
+	if len(got.Conversations) != len(fixture.Conversations) {
+		t.Fatalf("conversations = %d, want %d", len(got.Conversations), len(fixture.Conversations))
+	}
+	if len(got.Conversations[0].Parts) == 0 {
+		t.Fatalf("missing conversation parts")
 	}
 }
 

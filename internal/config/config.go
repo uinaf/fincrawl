@@ -15,6 +15,7 @@ const (
 	DisplayName     = "fincrawl"
 	EnvHome         = "FINCRAWL_HOME"
 	EnvAgeRecipient = "FINCRAWL_AGE_RECIPIENT"
+	EnvAgeIdentity  = "FINCRAWL_AGE_IDENTITY"
 	EnvIntercomCred = "FINCRAWL_INTERCOM_" + "TOKEN"
 	EnvIntercomBase = "FINCRAWL_INTERCOM_BASE_URL"
 	EnvIntercomVer  = "FINCRAWL_INTERCOM_VERSION"
@@ -30,6 +31,7 @@ type Runtime struct {
 	Paths            ckconfig.Paths
 	Config           ckconfig.RuntimeConfig
 	AgeRecipientSet  bool
+	AgeIdentitySet   bool
 	IntercomTokenSet bool
 }
 
@@ -68,6 +70,7 @@ func LoadRuntime() (Runtime, error) {
 		Paths:            paths,
 		Config:           cfg,
 		AgeRecipientSet:  strings.TrimSpace(os.Getenv(EnvAgeRecipient)) != "",
+		AgeIdentitySet:   strings.TrimSpace(os.Getenv(EnvAgeIdentity)) != "",
 		IntercomTokenSet: strings.TrimSpace(os.Getenv(EnvIntercomCred)) != "",
 	}, nil
 }
@@ -78,6 +81,10 @@ func EnsureDirs(rt Runtime) error {
 
 func AgeRecipient() string {
 	return strings.TrimSpace(os.Getenv(EnvAgeRecipient))
+}
+
+func AgeIdentity() string {
+	return strings.TrimSpace(os.Getenv(EnvAgeIdentity))
 }
 
 func IntercomToken() string {

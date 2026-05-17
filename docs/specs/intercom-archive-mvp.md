@@ -50,6 +50,12 @@ Daily use is cheap:
   present.
 - Unsupported or liveness-sensitive operations remain explicit live API calls.
 
+The current implementation stage is local-first and deliberately smaller than
+the target product. It supports local sync, SQLite search, canonical
+zstd+age-encrypted `publish`, and encrypted `import`. Remote `publish --push`
+and `subscribe` remain target commands for a later slice after the local
+tenant-controlled loop has proven useful.
+
 ## Data Scope
 
 The MVP stores:
@@ -271,12 +277,26 @@ README.md
 Subscriber flow:
 
 ```bash
-fincrawl subscribe <store-url>
+fincrawl import --in snapshots/latest.jsonl.zst.age
 fincrawl search "login code expired"
 ```
 
-Publish/subscribe should come after local entity hydration is useful enough to
-carry across machines. The first publishable store should contain a manifest and
+Local encrypted publish/import is the first store portability path:
+
+```bash
+fincrawl publish --recipient <age-recipient> --out snapshots/latest.jsonl.zst.age
+fincrawl import --in snapshots/latest.jsonl.zst.age
+```
+
+`publish` reads the local SQLite archive and writes only compressed encrypted
+JSONL. `import` decrypts and imports the snapshot into local SQLite, and may run
+against a scratch `FINCRAWL_HOME` so operators can prove portability without
+touching their primary archive. A private decrypt identity is required for
+import, including import dry-runs, because dry-run validates encrypted record
+contents and counts.
+
+Remote publish/subscribe should come after the local flow has run long enough
+to prove useful. The first publishable store should contain a manifest and
 encrypted snapshot artifacts only; runtime config, credentials, plaintext
 archives, local SQLite files, logs, and tenant reports remain outside the store.
 
@@ -289,10 +309,8 @@ credentials are present and a caller explicitly requests it.
 Generic repo verification:
 
 ```bash
-go test ./...
-go test -race ./...
-go run ./cmd/fincrawl doctor --offline
-go run ./cmd/fincrawl archive --fixture testdata/synthetic --recipient <age-recipient> --out <tmp>.jsonl.zst.age
+./scripts/verify
+./scripts/release-check
 ```
 
 Live/manual proof with a real tenant token is allowed only locally:
@@ -301,6 +319,8 @@ Live/manual proof with a real tenant token is allowed only locally:
 - No real output is committed.
 - Logs redact token source and tenant identifiers.
 - Generated tenant artifacts go only to tenant-controlled private storage.
+- Encrypted tenant snapshots are still tenant data; store them only in
+  tenant-controlled private storage, not in `uinaf/fincrawl`.
 
 ## Done For MVP
 
@@ -310,6 +330,9 @@ The MVP is done when:
 - Synthetic fixture sync writes canonical JSONL.
 - Local SQLite search works without live Intercom access.
 - Artifact pipeline compresses and encrypts output.
+- Local `publish` exports SQLite state to encrypted JSONL.
+- Local `import` can hydrate SQLite from encrypted JSONL without live Intercom
+  access when a private decrypt identity is available outside Git.
 - Preflight blocks plaintext archives, transcript-like data, secrets, and tenant
   identifiers.
 - Docs state the tenant/data boundary clearly.

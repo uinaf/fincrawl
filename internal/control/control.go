@@ -50,9 +50,11 @@ func Manifest(rt config.Runtime) ckcontrol.Manifest {
 		"sync":     {Title: "Sync conversations", Argv: []string{"fincrawl", "sync", "--fixture", "testdata/synthetic", "--dry-run"}, JSON: true, Mutates: true},
 		"search":   {Title: "Search local archive", Argv: []string{"fincrawl", "search", "query", "--fields", "provider_id,subject,updated_at"}, JSON: true},
 		"archive":  {Title: "Write encrypted archive", Argv: []string{"fincrawl", "archive", "--fixture", "testdata/synthetic", "--recipient", syntheticArchiveRecipient, "--out", "tmp/fincrawl-smoke.jsonl.zst.age", "--dry-run"}, JSON: true, Mutates: true},
+		"publish":  {Title: "Publish encrypted snapshot", Argv: []string{"fincrawl", "publish", "--recipient", syntheticArchiveRecipient, "--out", "tmp/fincrawl-publish.jsonl.zst.age", "--dry-run"}, JSON: true, Mutates: true},
+		"import":   {Title: "Import encrypted snapshot", Argv: []string{"fincrawl", "import", "--in", "tmp/fincrawl-publish.jsonl.zst.age", "--dry-run"}, JSON: true, Mutates: true},
 		"guard":    {Title: "Check commit guardrails", Argv: []string{"fincrawl", "guard"}, JSON: true},
 	}
-	manifest.Capabilities = []string{"intercom-api-sync", "sqlite-fts-search", "zstd-age-archive", "synthetic-fixtures"}
+	manifest.Capabilities = []string{"intercom-api-sync", "sqlite-fts-search", "zstd-age-archive", "encrypted-snapshot-import", "synthetic-fixtures"}
 	manifest.Privacy = ckcontrol.Privacy{
 		ContainsPrivateMessages: true,
 		ExportsSecrets:          false,

@@ -62,9 +62,11 @@ type dryRunPlan struct {
 	CredentialPresent  bool           `json:"credential_present,omitempty"`
 	DatabasePath       string         `json:"database_path,omitempty"`
 	Output             string         `json:"output,omitempty"`
+	Input              string         `json:"input,omitempty"`
 	Records            int            `json:"records,omitempty"`
 	Counts             map[string]int `json:"counts,omitempty"`
 	Parameters         map[string]any `json:"parameters,omitempty"`
+	WouldRead          []string       `json:"would_read,omitempty"`
 	WouldWrite         []string       `json:"would_write,omitempty"`
 	WouldCall          []string       `json:"would_call,omitempty"`
 }
@@ -175,6 +177,40 @@ func describeCommands(command string) (cliSchema, error) {
 				Examples: []string{"fincrawl archive --fixture testdata/synthetic --recipient age1... --out tmp/snapshot.jsonl.zst.age --dry-run"},
 				Notes:    []string{"Output paths must be relative, stay under the current working directory, and end in .jsonl.zst.age."},
 			},
+			"publish": {
+				Name:    "publish",
+				Summary: "Publish local SQLite state as a compressed age-encrypted snapshot.",
+				Mutates: true,
+				JSON:    true,
+				Flags: []paramSchema{
+					{Name: "recipient", Type: "age-recipient|ssh-public-key", Help: "Age recipient or SSH public key recipient. Defaults to FINCRAWL_AGE_RECIPIENT."},
+					{Name: "out", Type: "relative-path", Required: true, Help: "Output path under the current repo ending in .jsonl.zst.age."},
+					{Name: "dry-run", Type: "bool", Help: "Validate and describe publish output without writing an artifact."},
+					{Name: "json", Type: "bool", Default: "true", Help: "Print JSON output."},
+				},
+				Examples: []string{"fincrawl publish --out snapshots/local.jsonl.zst.age --dry-run"},
+				Notes: []string{
+					"Reads the local SQLite archive and writes only compressed age-encrypted JSONL.",
+					"Output paths must be relative, stay under the current working directory, and end in .jsonl.zst.age.",
+				},
+			},
+			"import": {
+				Name:    "import",
+				Summary: "Import a compressed age-encrypted snapshot into local SQLite.",
+				Mutates: true,
+				JSON:    true,
+				Flags: []paramSchema{
+					{Name: "identity", Type: "age-identity", Help: "Age identity. Defaults to FINCRAWL_AGE_IDENTITY."},
+					{Name: "in", Type: "relative-path", Required: true, Help: "Input path under the current repo ending in .jsonl.zst.age."},
+					{Name: "dry-run", Type: "bool", Help: "Validate and describe import work without writing local state."},
+					{Name: "json", Type: "bool", Default: "true", Help: "Print JSON output."},
+				},
+				Examples: []string{"fincrawl import --in snapshots/local.jsonl.zst.age --dry-run"},
+				Notes: []string{
+					"Decrypts and imports into local SQLite; it does not call live provider APIs.",
+					"Input paths must be relative, stay under the current working directory, and end in .jsonl.zst.age.",
+				},
+			},
 			"guard": {
 				Name:    "guard",
 				Summary: "Check commit guardrails for tenant data, plaintext archives, and secret-like values.",
@@ -278,14 +314,27 @@ func syncDryRun(mode, dbPath string, credentialPresent bool, counts map[string]i
 	return plan
 }
 
-func archiveDryRun(out string, records int) dryRunPlan {
+func archiveDryRun(command, out string, records int) dryRunPlan {
 	return dryRunPlan{
 		DryRun:      true,
-		Command:     "archive",
+		Command:     command,
 		WouldMutate: true,
 		Output:      out,
 		Records:     records,
 		WouldWrite:  []string{out},
+	}
+}
+
+func importDryRun(in, dbPath string, records int) dryRunPlan {
+	return dryRunPlan{
+		DryRun:       true,
+		Command:      "import",
+		WouldMutate:  true,
+		Input:        in,
+		Records:      records,
+		DatabasePath: dbPath,
+		WouldRead:    []string{in},
+		WouldWrite:   []string{dbPath},
 	}
 }
 
@@ -356,37 +405,41 @@ func validateProviderID(kind, id string) error {
 }
 
 func validateArchiveOut(path string) error {
+	return validateArchiveArtifactPath("--out", path)
+}
+
+func validateArchiveArtifactPath(flag, path string) error {
 	if strings.TrimSpace(path) == "" {
-		return errors.New("--out is required")
+		return fmt.Errorf("%s is required", flag)
 	}
 	if path != strings.TrimSpace(path) {
-		return errors.New("--out must not have leading or trailing whitespace")
+		return fmt.Errorf("%s must not have leading or trailing whitespace", flag)
 	}
 	if !strings.HasSuffix(path, ".jsonl.zst.age") {
-		return errors.New("--out must end in .jsonl.zst.age")
+		return fmt.Errorf("%s must end in .jsonl.zst.age", flag)
 	}
 	if filepath.IsAbs(path) {
-		return errors.New("--out must be relative to the current working directory")
+		return fmt.Errorf("%s must be relative to the current working directory", flag)
 	}
 	if hasControl(path) {
-		return errors.New("--out must not contain control characters")
+		return fmt.Errorf("%s must not contain control characters", flag)
 	}
 	if strings.ContainsAny(path, "?#") {
-		return errors.New("--out must not contain query strings or fragments")
+		return fmt.Errorf("%s must not contain query strings or fragments", flag)
 	}
 	lower := strings.ToLower(path)
 	if strings.Contains(lower, "%2e") || strings.Contains(lower, "%2f") || strings.Contains(lower, "%5c") {
-		return errors.New("--out must not contain percent-encoded path traversal or separators")
+		return fmt.Errorf("%s must not contain percent-encoded path traversal or separators", flag)
 	}
 	clean := filepath.Clean(path)
 	if clean == "." || strings.HasPrefix(clean, ".."+string(filepath.Separator)) || clean == ".." {
-		return errors.New("--out must stay under the current working directory")
+		return fmt.Errorf("%s must stay under the current working directory", flag)
 	}
 	for _, part := range strings.FieldsFunc(path, func(r rune) bool {
 		return r == '/' || r == '\\'
 	}) {
 		if part == ".." {
-			return errors.New("--out must not contain path traversal")
+			return fmt.Errorf("%s must not contain path traversal", flag)
 		}
 	}
 	return nil

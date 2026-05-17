@@ -11,6 +11,7 @@ import (
 	"testing"
 	"time"
 
+	"filippo.io/age"
 	"github.com/openclaw/crawlkit/output"
 	"github.com/uinaf/fincrawl/internal/config"
 )
@@ -398,6 +399,47 @@ func TestArchiveDryRunDoesNotWriteArtifact(t *testing.T) {
 	}
 	if _, err := os.Stat(out); !os.IsNotExist(err) {
 		t.Fatalf("dry run wrote artifact or unexpected stat error: %v", err)
+	}
+}
+
+func TestPublishImportEncryptedSnapshotRoundTrip(t *testing.T) {
+	sourceHome := t.TempDir()
+	targetHome := t.TempDir()
+	t.Setenv("FINCRAWL_HOME", sourceHome)
+	identity, err := age.GenerateX25519Identity()
+	if err != nil {
+		t.Fatal(err)
+	}
+	out := filepath.Join("tmp", fmt.Sprintf("publish-import-%d.jsonl.zst.age", time.Now().UnixNano()))
+	t.Cleanup(func() {
+		_ = os.Remove(out)
+	})
+	var stdout bytes.Buffer
+	var stderr bytes.Buffer
+
+	if err := Run(context.Background(), []string{"sync", "--fixture", filepath.Join("..", "..", "testdata", "synthetic")}, &stdout, &stderr); err != nil {
+		t.Fatal(err)
+	}
+	stdout.Reset()
+	if err := Run(context.Background(), []string{"publish", "--recipient", identity.Recipient().String(), "--out", out}, &stdout, &stderr); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := os.Stat(out); err != nil {
+		t.Fatalf("published artifact missing: %v", err)
+	}
+	stdout.Reset()
+	if err := os.Setenv("FINCRAWL_HOME", targetHome); err != nil {
+		t.Fatal(err)
+	}
+	if err := Run(context.Background(), []string{"import", "--identity", identity.String(), "--in", out}, &stdout, &stderr); err != nil {
+		t.Fatal(err)
+	}
+	stdout.Reset()
+	if err := Run(context.Background(), []string{"search", "Morgan", "--fields", "provider_id,subject", "--json"}, &stdout, &stderr); err != nil {
+		t.Fatal(err)
+	}
+	if !bytes.Contains(stdout.Bytes(), []byte(`"provider_id": "ic_syn_002"`)) {
+		t.Fatalf("stdout = %q", stdout.String())
 	}
 }
 

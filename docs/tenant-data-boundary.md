@@ -78,7 +78,8 @@ belong in tenant-controlled private storage, not in `uinaf/fincrawl`.
 
 Encryption recipients may be native `age1...` recipients or SSH public keys
 accepted by age. Private age identities and private SSH keys must stay outside
-the repo.
+the repo. Import dry-runs still need a private decrypt identity because they
+validate encrypted record contents and counts.
 
 ## Fixture Rule
 

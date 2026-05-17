@@ -45,6 +45,17 @@ type Record struct {
 
 func FixtureRecords(fixture store.Fixture) []Record {
 	var records []Record
+	if fixture.Workspace.ID != "" || fixture.Workspace.Provider != "" || fixture.Workspace.Name != "" {
+		records = append(records, Record{
+			SchemaVersion: SchemaVersion,
+			RecordType:    "workspace",
+			ID:            fixture.Workspace.ID,
+			Provider:      fixture.Workspace.Provider,
+			ProviderID:    fixture.Workspace.ID,
+			Name:          fixture.Workspace.Name,
+			CreatedAt:     normalizeTime(fixture.Workspace.CreatedAt),
+		})
+	}
 	for _, admin := range fixture.Entities.Admins {
 		records = append(records, Record{
 			SchemaVersion: SchemaVersion,
@@ -188,6 +199,53 @@ func JSONLBytes(records []Record) ([]byte, error) {
 	return buf.Bytes(), nil
 }
 
+func ReadEncryptedJSONL(path, identityText string) ([]Record, error) {
+	identities, err := ParseIdentities(identityText)
+	if err != nil {
+		return nil, err
+	}
+	file, err := os.Open(path)
+	if err != nil {
+		return nil, fmt.Errorf("open archive: %w", err)
+	}
+	defer file.Close()
+	ageReader, err := age.Decrypt(file, identities...)
+	if err != nil {
+		return nil, fmt.Errorf("decrypt archive: %w", err)
+	}
+	zstdReader, err := zstd.NewReader(ageReader)
+	if err != nil {
+		return nil, fmt.Errorf("create zstd reader: %w", err)
+	}
+	defer zstdReader.Close()
+	records, err := ReadJSONL(zstdReader)
+	if err != nil {
+		return nil, err
+	}
+	return records, nil
+}
+
+func ReadJSONL(r io.Reader) ([]Record, error) {
+	decoder := json.NewDecoder(r)
+	var records []Record
+	lineNo := 0
+	for {
+		lineNo++
+		var record Record
+		if err := decoder.Decode(&record); err != nil {
+			if err == io.EOF {
+				break
+			}
+			return nil, fmt.Errorf("decode JSONL line %d: %w", lineNo, err)
+		}
+		if record.SchemaVersion != SchemaVersion {
+			return nil, fmt.Errorf("decode JSONL line %d: unsupported schema version %q", lineNo, record.SchemaVersion)
+		}
+		records = append(records, record)
+	}
+	return records, nil
+}
+
 func WriteEncryptedJSONL(path, recipientText string, records []Record) error {
 	recipient, err := ParseRecipient(recipientText)
 	if err != nil {
@@ -222,6 +280,25 @@ func WriteEncryptedJSONL(path, recipientText string, records []Record) error {
 	return nil
 }
 
+func ParseIdentities(identityText string) ([]age.Identity, error) {
+	identityText = strings.TrimSpace(identityText)
+	if identityText == "" {
+		return nil, fmt.Errorf("age identity is required")
+	}
+	if strings.HasPrefix(identityText, "-----BEGIN") {
+		identity, err := agessh.ParseIdentity([]byte(identityText))
+		if err != nil {
+			return nil, fmt.Errorf("parse ssh identity: %w", err)
+		}
+		return []age.Identity{identity}, nil
+	}
+	identities, err := age.ParseIdentities(strings.NewReader(identityText))
+	if err != nil {
+		return nil, fmt.Errorf("parse age identity: %w", err)
+	}
+	return identities, nil
+}
+
 func ParseRecipient(recipientText string) (age.Recipient, error) {
 	recipientText = strings.TrimSpace(recipientText)
 	if recipientText == "" {
@@ -242,6 +319,123 @@ func ParseRecipient(recipientText string) (age.Recipient, error) {
 		return recipient, nil
 	}
 	return nil, fmt.Errorf("unsupported age recipient format")
+}
+
+func RecordsFixture(records []Record) (store.Fixture, error) {
+	var fixture store.Fixture
+	conversations := map[string]int{}
+	for _, record := range records {
+		if record.SchemaVersion != SchemaVersion {
+			return store.Fixture{}, fmt.Errorf("unsupported schema version %q", record.SchemaVersion)
+		}
+		switch record.RecordType {
+		case "workspace":
+			fixture.Workspace = store.Workspace{
+				ID:        record.ID,
+				Provider:  record.Provider,
+				Name:      record.Name,
+				CreatedAt: record.CreatedAt,
+			}
+		case "admin":
+			fixture.Entities.Admins = append(fixture.Entities.Admins, store.Admin{
+				ID:         record.ID,
+				Provider:   record.Provider,
+				ProviderID: record.ProviderID,
+				Name:       record.Name,
+				Email:      record.Email,
+				TeamIDs:    sortedStrings(record.TeamIDs),
+				Raw:        record.Raw,
+			})
+		case "team":
+			fixture.Entities.Teams = append(fixture.Entities.Teams, store.Team{
+				ID:         record.ID,
+				Provider:   record.Provider,
+				ProviderID: record.ProviderID,
+				Name:       record.Name,
+				Raw:        record.Raw,
+			})
+		case "provider_tag":
+			fixture.Entities.Tags = append(fixture.Entities.Tags, store.ProviderTag{
+				ID:         record.ID,
+				Provider:   record.Provider,
+				ProviderID: record.ProviderID,
+				Name:       record.Name,
+				Raw:        record.Raw,
+			})
+		case "contact":
+			fixture.Entities.Contacts = append(fixture.Entities.Contacts, store.Contact{
+				ID:         record.ID,
+				Provider:   record.Provider,
+				ProviderID: record.ProviderID,
+				Name:       record.Name,
+				Email:      record.Email,
+				Raw:        record.Raw,
+			})
+		case "conversation":
+			conversation := store.Conversation{
+				ID:           record.ID,
+				Provider:     record.Provider,
+				ProviderID:   record.ProviderID,
+				Subject:      record.Subject,
+				State:        record.State,
+				Assignee:     record.Assignee,
+				Rating:       record.Rating,
+				FinStatus:    record.FinStatus,
+				Participants: sortedStrings(record.Participants),
+				Tags:         sortedStrings(record.Tags),
+				CreatedAt:    record.CreatedAt,
+				UpdatedAt:    record.UpdatedAt,
+				Raw:          record.Raw,
+			}
+			fixture.Conversations = append(fixture.Conversations, conversation)
+			conversations[conversation.ID] = len(fixture.Conversations) - 1
+		case "conversation_part":
+			if strings.TrimSpace(record.ConversationID) == "" {
+				return store.Fixture{}, fmt.Errorf("conversation_part %q is missing conversation_id", record.ID)
+			}
+			index, ok := conversations[record.ConversationID]
+			if !ok {
+				fixture.Conversations = append(fixture.Conversations, store.Conversation{
+					ID:         record.ConversationID,
+					Provider:   record.Provider,
+					ProviderID: record.ConversationID,
+				})
+				index = len(fixture.Conversations) - 1
+				conversations[record.ConversationID] = index
+			}
+			fixture.Conversations[index].Parts = append(fixture.Conversations[index].Parts, store.Part{
+				ID:         record.ID,
+				ProviderID: record.ProviderID,
+				Type:       record.PartType,
+				AuthorName: record.AuthorName,
+				Body:       record.Body,
+				CreatedAt:  record.CreatedAt,
+				UpdatedAt:  record.UpdatedAt,
+				Raw:        record.Raw,
+			})
+		default:
+			return store.Fixture{}, fmt.Errorf("unsupported archive record type %q", record.RecordType)
+		}
+	}
+	if fixture.Workspace.ID == "" {
+		fixture.Workspace = inferWorkspace(records)
+	}
+	return fixture, nil
+}
+
+func inferWorkspace(records []Record) store.Workspace {
+	provider := store.ProviderIntercom
+	for _, record := range records {
+		if strings.TrimSpace(record.Provider) != "" {
+			provider = record.Provider
+			break
+		}
+	}
+	return store.Workspace{
+		ID:       provider,
+		Provider: provider,
+		Name:     provider,
+	}
 }
 
 func sortedStrings(values []string) []string {

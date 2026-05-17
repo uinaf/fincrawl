@@ -32,6 +32,8 @@ type app struct {
 	Sync     syncCmd     `cmd:"" help:"Sync conversations from fixtures or provider APIs."`
 	Search   searchCmd   `cmd:"" help:"Search the local archive."`
 	Archive  archiveCmd  `cmd:"" help:"Write compressed age-encrypted archive output."`
+	Publish  publishCmd  `cmd:"" help:"Publish local SQLite state as an encrypted snapshot."`
+	Import   importCmd   `cmd:"" help:"Import an encrypted snapshot into local SQLite."`
 	Guard    guardCmd    `cmd:"" help:"Check commit guardrails."`
 	Version  versionCmd  `cmd:"" help:"Print version information."`
 }
@@ -93,6 +95,7 @@ func (cmd doctorCmd) Run(ctx commandContext) error {
 		ConfigPath:   rt.Paths.ConfigPath,
 		DatabasePath: rt.Config.DBPath,
 		Credentials: map[string]string{
+			config.EnvAgeIdentity:  redactPresence(rt.AgeIdentitySet),
 			config.EnvAgeRecipient: redactPresence(rt.AgeRecipientSet),
 			config.EnvIntercomCred: redactPresence(rt.IntercomTokenSet),
 		},
@@ -116,6 +119,16 @@ func (cmd doctorCmd) Run(ctx commandContext) error {
 		}
 	} else {
 		result.Checks = append(result.Checks, checkResult{Name: "age_recipient", OK: true, Detail: "not set"})
+	}
+	if identity := config.AgeIdentity(); identity != "" {
+		if _, err := archive.ParseIdentities(identity); err != nil {
+			result.OK = false
+			result.Checks = append(result.Checks, checkResult{Name: "age_identity", OK: false, Detail: err.Error()})
+		} else {
+			result.Checks = append(result.Checks, checkResult{Name: "age_identity", OK: true, Detail: "present"})
+		}
+	} else {
+		result.Checks = append(result.Checks, checkResult{Name: "age_identity", OK: true, Detail: "not set"})
 	}
 	if cmd.JSON {
 		if err := output.Write(ctx.stdout, output.JSON, "doctor", result); err != nil {
@@ -410,7 +423,7 @@ func (cmd archiveCmd) Run(ctx commandContext) error {
 	if cmd.Fixture == "" {
 		return output.UsageError{Err: fmt.Errorf("archive currently requires --fixture")}
 	}
-	if err := validateArchiveOut(cmd.Out); err != nil {
+	if err := validateArchiveArtifactPath("--out", cmd.Out); err != nil {
 		return output.UsageError{Err: err}
 	}
 	recipient := strings.TrimSpace(cmd.Recipient)
@@ -426,7 +439,7 @@ func (cmd archiveCmd) Run(ctx commandContext) error {
 		if _, err := archive.ParseRecipient(recipient); err != nil {
 			return err
 		}
-		return writeMaybeJSON(ctx.stdout, cmd.JSON, archiveDryRun(cmd.Out, len(records)))
+		return writeMaybeJSON(ctx.stdout, cmd.JSON, archiveDryRun("archive", cmd.Out, len(records)))
 	}
 	if err := os.MkdirAll(filepath.Dir(cmd.Out), 0o755); err != nil && filepath.Dir(cmd.Out) != "." {
 		return err
@@ -435,6 +448,106 @@ func (cmd archiveCmd) Run(ctx commandContext) error {
 		return err
 	}
 	return writeMaybeJSON(ctx.stdout, cmd.JSON, archiveResult{Output: cmd.Out, Records: len(records)})
+}
+
+type publishCmd struct {
+	Recipient string `help:"Age recipient or SSH public key recipient. Defaults to FINCRAWL_AGE_RECIPIENT."`
+	Out       string `help:"Output path ending in .jsonl.zst.age." required:""`
+	DryRun    bool   `name:"dry-run" help:"Validate and describe publish output without writing an artifact."`
+	JSON      bool   `help:"Print JSON output." default:"true"`
+}
+
+func (cmd publishCmd) Run(ctx commandContext) error {
+	rt, err := config.LoadRuntime()
+	if err != nil {
+		return err
+	}
+	if err := validateArchiveArtifactPath("--out", cmd.Out); err != nil {
+		return output.UsageError{Err: err}
+	}
+	recipient := strings.TrimSpace(cmd.Recipient)
+	if recipient == "" {
+		recipient = config.AgeRecipient()
+	}
+	if _, err := archive.ParseRecipient(recipient); err != nil {
+		return err
+	}
+	if cmd.DryRun {
+		fixture, err := store.ExportFixture(ctx, rt.Config.DBPath)
+		if err != nil {
+			return err
+		}
+		records := archive.FixtureRecords(fixture)
+		return writeMaybeJSON(ctx.stdout, cmd.JSON, archiveDryRun("publish", cmd.Out, len(records)))
+	}
+	lck, err := lock.Acquire(rt.Config.DBPath)
+	if err != nil {
+		return err
+	}
+	defer lck.Release()
+	fixture, err := store.ExportFixture(ctx, rt.Config.DBPath)
+	if err != nil {
+		return err
+	}
+	records := archive.FixtureRecords(fixture)
+	if err := os.MkdirAll(filepath.Dir(cmd.Out), 0o755); err != nil && filepath.Dir(cmd.Out) != "." {
+		return err
+	}
+	if err := archive.WriteEncryptedJSONL(cmd.Out, recipient, records); err != nil {
+		return err
+	}
+	return writeMaybeJSON(ctx.stdout, cmd.JSON, archiveResult{Output: cmd.Out, Records: len(records)})
+}
+
+type importCmd struct {
+	Identity string `help:"Age identity. Defaults to FINCRAWL_AGE_IDENTITY."`
+	In       string `help:"Input path ending in .jsonl.zst.age." required:""`
+	DryRun   bool   `name:"dry-run" help:"Validate and describe import work without writing local state."`
+	JSON     bool   `help:"Print JSON output." default:"true"`
+}
+
+type importResult struct {
+	Input   string           `json:"input"`
+	Records int              `json:"records"`
+	Sync    store.SyncResult `json:"sync"`
+}
+
+func (cmd importCmd) Run(ctx commandContext) error {
+	rt, err := config.LoadRuntime()
+	if err != nil {
+		return err
+	}
+	if err := validateArchiveArtifactPath("--in", cmd.In); err != nil {
+		return output.UsageError{Err: err}
+	}
+	identity := strings.TrimSpace(cmd.Identity)
+	if identity == "" {
+		identity = config.AgeIdentity()
+	}
+	records, err := archive.ReadEncryptedJSONL(cmd.In, identity)
+	if err != nil {
+		return err
+	}
+	fixture, err := archive.RecordsFixture(records)
+	if err != nil {
+		return err
+	}
+	if cmd.DryRun {
+		return writeMaybeJSON(ctx.stdout, cmd.JSON, importDryRun(cmd.In, rt.Config.DBPath, len(records)))
+	}
+	if err := config.EnsureDirs(rt); err != nil {
+		return err
+	}
+	lck, err := lock.Acquire(rt.Config.DBPath)
+	if err != nil {
+		return err
+	}
+	defer lck.Release()
+	result, err := store.SyncFixture(ctx, rt.Config.DBPath, fixture)
+	if err != nil {
+		return err
+	}
+	return writeMaybeJSON(ctx.stdout, cmd.JSON, importResult{Input: cmd.In, Records: len(records), Sync: result})
 }
 
 type guardCmd struct {

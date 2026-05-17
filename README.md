@@ -38,6 +38,18 @@ synthetic fixture data during deterministic checks:
 ./scripts/verify
 ```
 
+`mise` is available as a convenience task index for ad-hoc local work. The
+underlying scripts remain the source of truth for verification:
+
+```bash
+mise trust mise.toml
+mise tasks
+mise run smoke
+mise run fixture-loop
+mise run verify
+mise run guard
+```
+
 Use `FINCRAWL_HOME=tmp/fincrawl-home` to keep local CLI smoke state inside the
 ignored repo `tmp/` directory. The archive command above uses a synthetic public
 age recipient for smoke tests only. The CLI may read ignored `.env.local` for
@@ -74,7 +86,8 @@ workflow and cleanup notes.
 
 ## Current Local Slice
 
-The current local slice focuses on entity hydration and useful local search:
+The current local slice focuses on entity hydration, useful local search, and
+local encrypted snapshot portability:
 
 - Hydrate and normalize Intercom admins, teams, tags, and capped contacts/users
   where the tenant-authorized token exposes them.
@@ -82,8 +95,14 @@ The current local slice focuses on entity hydration and useful local search:
   Fin-like metadata while keeping provider-specific raw JSON for replay.
 - Provide local smoke checks for read-only scopes without writing tenant config,
   logs, snapshots, or generated artifacts into this repo.
-- Prepare encrypted publish/subscribe after local search has enough entity
-  context to be useful on another machine.
+- Publish local SQLite state as compressed age-encrypted JSONL with
+  `fincrawl publish`.
+- Import compressed age-encrypted JSONL into a fresh local SQLite archive with
+  `fincrawl import`.
+
+The local publish/import loop is the current portability path. Remote
+publish/push/subscribe flows are intentionally deferred while tenant-controlled
+local usage proves the archive is useful.
 
 The default Intercom API version is `2.15`. Set
 `FINCRAWL_INTERCOM_BASE_URL` only for a regional Intercom API host and
@@ -105,6 +124,8 @@ fincrawl search "login code expired" --fields provider_id,subject,updated_at
 fincrawl search "login code expired" --fields provider_id,subject,updated_at --ndjson
 fincrawl sync --updated-since 2h --limit 50 --dry-run
 fincrawl archive --fixture testdata/synthetic --recipient age1n9zrm0rcxehv7cm55uqw27v9cguz4ev5dtyl7kxkn3vdpvap94ds2gn6rl --out tmp/snapshot.jsonl.zst.age --dry-run
+fincrawl publish --recipient <age-recipient> --out snapshots/local.jsonl.zst.age --dry-run
+FINCRAWL_AGE_IDENTITY=<age-identity> fincrawl import --in snapshots/local.jsonl.zst.age --dry-run
 ```
 
 CLI output defaults to JSON, including structured error envelopes. Use
