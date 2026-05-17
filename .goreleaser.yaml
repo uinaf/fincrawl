@@ -44,4 +44,4 @@ changelog:
 
 release:
   mode: append
-  replace_existing_artifacts: true
+  replace_existing_artifacts: false

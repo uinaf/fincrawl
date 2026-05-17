@@ -17,6 +17,8 @@ logs, reports, screenshots, summaries, or transcript-derived examples public.
 - The current tree, history, release pipeline, and docs should contain no
   tenant-derived residue.
 - Repository metadata should stay aligned with the public CLI surface.
+- The default branch should be protected before release automation can publish
+  from it.
 
 ## Current Tree Audit
 
@@ -108,6 +110,7 @@ Confirm visibility and metadata with:
 
 ```bash
 gh repo view uinaf/fincrawl --json visibility,isPrivate,licenseInfo,securityPolicyUrl,repositoryTopics
+gh api repos/uinaf/fincrawl/rulesets --jq '.[] | {name,target,enforcement}'
 ```
 
 Confirm the public release and CI surfaces still work without exposing tenant
