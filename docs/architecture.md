@@ -20,6 +20,7 @@ fincrawl status --json
 fincrawl sync --fixture testdata/synthetic
 fincrawl sync --entities
 fincrawl sync --updated-since 2h --limit 50
+fincrawl sync --updated-since 180d --updated-before 90d --limit 0
 fincrawl sync --resume
 fincrawl sync --conversation <id>
 fincrawl search "billing refund" --json

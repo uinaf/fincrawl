@@ -386,6 +386,47 @@ func TestResumeTailContinuesAfterLimitedRun(t *testing.T) {
 	}
 }
 
+func TestSyncUpdatedSincePreservesNewerHighWaterMark(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/conversations/search" {
+			t.Fatalf("path = %s", r.URL.Path)
+		}
+		w.Header().Set("Content-Type", "application/json")
+		w.Write([]byte(`{"conversations":[],"pages":{"next":{}}}`))
+	}))
+	defer server.Close()
+	dbPath := filepath.Join(t.TempDir(), "fincrawl.db")
+	newer := time.Unix(1770001000, 0).UTC().Format(time.RFC3339)
+	if err := store.SaveSyncState(context.Background(), dbPath, store.SyncState{
+		ID:            store.IntercomTailSyncStateID,
+		HighWaterMark: newer,
+	}); err != nil {
+		t.Fatal(err)
+	}
+	s := IntercomSyncer{
+		Client: intercom.Client{BaseURL: server.URL, Token: "fake-token", HTTPClient: server.Client()},
+		Now:    func() time.Time { return time.Unix(1770000000, 0) },
+	}
+	_, err := s.SyncUpdatedSince(context.Background(), dbPath, time.Unix(1769990000, 0), time.Unix(1770000500, 0), 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	state, ok, err := store.LoadSyncState(context.Background(), dbPath, store.IntercomTailSyncStateID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !ok || state.HighWaterMark != newer {
+		t.Fatalf("state = %#v, want high water mark %q", state, newer)
+	}
+}
+
+func TestAdvanceHighWaterMarkPreservesValidCurrentFromMalformedCandidate(t *testing.T) {
+	current := "2026-05-17T18:00:00Z"
+	if got := advanceHighWaterMark(current, "not-a-timestamp"); got != current {
+		t.Fatalf("high water mark = %q, want %q", got, current)
+	}
+}
+
 func TestSyncUpdatedSinceRequiresResumeWhenActive(t *testing.T) {
 	dbPath := filepath.Join(t.TempDir(), "fincrawl.db")
 	if err := store.SaveSyncState(context.Background(), dbPath, store.SyncState{

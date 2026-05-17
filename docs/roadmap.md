@@ -15,7 +15,8 @@ this repo.
 - Search filters for state, tag, and Intercom-exposed Fin status.
 - Read-only Intercom entity sync for admins, teams, tags, and capped contacts
   when scopes allow.
-- Exact conversation hydration and bounded updated-since tail sync.
+- Exact conversation hydration and bounded updated-since / updated-before tail
+  sync.
 - Resumable sync state with privacy-safe status output.
 - Canonical JSONL export from fixtures or local SQLite.
 - zstd + age encrypted `archive`, `publish`, and `import` flows.

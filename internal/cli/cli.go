@@ -196,15 +196,16 @@ func (cmd statusCmd) Run(ctx commandContext) error {
 }
 
 type syncCmd struct {
-	Fixture      string `help:"Import synthetic fixture directory."`
-	UpdatedSince string `name:"updated-since" help:"Sync provider conversations updated since a duration or timestamp."`
-	Conversation string `help:"Hydrate one provider conversation ID."`
-	Entities     bool   `help:"Hydrate provider admins, teams, and tags."`
-	Contacts     bool   `help:"Include a capped contact/user list when used with --entities."`
-	Resume       bool   `help:"Resume an interrupted Intercom updated-since sync window."`
-	Limit        int    `help:"Maximum provider conversations for --updated-since, or contacts for --entities --contacts. Use 0 for no conversation limit." default:"50"`
-	DryRun       bool   `name:"dry-run" help:"Validate and describe planned sync work without writing local state or calling provider APIs."`
-	JSON         bool   `help:"Print JSON output." default:"true"`
+	Fixture       string `help:"Import synthetic fixture directory."`
+	UpdatedSince  string `name:"updated-since" help:"Sync provider conversations updated since a duration or timestamp."`
+	UpdatedBefore string `name:"updated-before" help:"Sync provider conversations updated before a duration or timestamp. Requires --updated-since."`
+	Conversation  string `help:"Hydrate one provider conversation ID."`
+	Entities      bool   `help:"Hydrate provider admins, teams, and tags."`
+	Contacts      bool   `help:"Include a capped contact/user list when used with --entities."`
+	Resume        bool   `help:"Resume an interrupted Intercom updated-since sync window."`
+	Limit         int    `help:"Maximum provider conversations for --updated-since, or contacts for --entities --contacts. Use 0 for no conversation limit." default:"50"`
+	DryRun        bool   `name:"dry-run" help:"Validate and describe planned sync work without writing local state or calling provider APIs."`
+	JSON          bool   `help:"Print JSON output." default:"true"`
 }
 
 func (cmd syncCmd) Run(ctx commandContext) error {
@@ -238,26 +239,42 @@ func (cmd syncCmd) Run(ctx commandContext) error {
 		return writeMaybeJSON(ctx.stdout, cmd.JSON, result)
 	}
 	if cmd.UpdatedSince != "" || cmd.Conversation != "" || cmd.Entities || cmd.Resume {
+		now := time.Now().UTC()
 		var updatedAfter time.Time
+		updatedBefore := now
 		if cmd.Conversation != "" {
 			if err := validateProviderID("conversation", cmd.Conversation); err != nil {
 				return output.UsageError{Err: err}
 			}
 		}
 		if cmd.UpdatedSince != "" {
-			updatedAfter, err = parseSince(cmd.UpdatedSince, time.Now().UTC())
+			updatedAfter, err = parseSince(cmd.UpdatedSince, now, "updated-since")
 			if err != nil {
 				return output.UsageError{Err: err}
 			}
 		}
+		if cmd.UpdatedBefore != "" {
+			updatedBefore, err = parseSince(cmd.UpdatedBefore, now, "updated-before")
+			if err != nil {
+				return output.UsageError{Err: err}
+			}
+			if !updatedBefore.After(updatedAfter) {
+				return output.UsageError{Err: fmt.Errorf("updated-before must be after updated-since")}
+			}
+		}
 		if cmd.DryRun {
-			plan := syncDryRun(cmd.mode(), rt.Config.DBPath, config.IntercomToken() != "", nil, map[string]any{
-				"contacts":      cmd.Contacts,
-				"conversation":  cmd.Conversation,
-				"limit":         cmd.Limit,
-				"updated_after": formatOptionalTime(updatedAfter),
-				"updated_since": cmd.UpdatedSince,
-			})
+			params := map[string]any{
+				"contacts":     cmd.Contacts,
+				"conversation": cmd.Conversation,
+				"limit":        cmd.Limit,
+			}
+			if cmd.UpdatedSince != "" {
+				params["updated_after"] = formatOptionalTime(updatedAfter)
+				params["updated_before"] = formatOptionalTime(updatedBefore)
+				params["updated_since"] = cmd.UpdatedSince
+				params["updated_before_input"] = cmd.UpdatedBefore
+			}
+			plan := syncDryRun(cmd.mode(), rt.Config.DBPath, config.IntercomToken() != "", nil, params)
 			return writeMaybeJSON(ctx.stdout, cmd.JSON, plan)
 		}
 		if err := config.EnsureDirs(rt); err != nil {
@@ -298,7 +315,7 @@ func (cmd syncCmd) Run(ctx commandContext) error {
 		} else if cmd.Resume {
 			result, err = s.ResumeTail(ctx, rt.Config.DBPath, cmd.Limit)
 		} else {
-			result, err = s.SyncUpdatedSince(ctx, rt.Config.DBPath, updatedAfter, time.Now().UTC(), cmd.Limit)
+			result, err = s.SyncUpdatedSince(ctx, rt.Config.DBPath, updatedAfter, updatedBefore, cmd.Limit)
 		}
 		if err != nil {
 			return err
@@ -341,16 +358,19 @@ func (cmd syncCmd) validateMode() error {
 	if cmd.Contacts && !cmd.Entities {
 		return output.UsageError{Err: fmt.Errorf("--contacts requires --entities")}
 	}
+	if cmd.UpdatedBefore != "" && cmd.UpdatedSince == "" {
+		return output.UsageError{Err: fmt.Errorf("--updated-before requires --updated-since")}
+	}
 	if (cmd.UpdatedSince != "" || cmd.Resume || cmd.Entities) && cmd.Limit < 0 {
 		return output.UsageError{Err: fmt.Errorf("--limit must be >= 0")}
 	}
 	return nil
 }
 
-func parseSince(value string, now time.Time) (time.Time, error) {
+func parseSince(value string, now time.Time, field string) (time.Time, error) {
 	value = strings.TrimSpace(value)
 	if value == "" {
-		return time.Time{}, fmt.Errorf("updated-since is required")
+		return time.Time{}, fmt.Errorf("%s is required", field)
 	}
 	if strings.HasSuffix(value, "d") {
 		days, err := strconv.Atoi(strings.TrimSuffix(value, "d"))
@@ -371,7 +391,7 @@ func parseSince(value string, now time.Time) (time.Time, error) {
 	if unix, err := strconv.ParseInt(value, 10, 64); err == nil {
 		return time.Unix(unix, 0).UTC(), nil
 	}
-	return time.Time{}, fmt.Errorf("invalid updated-since %q; use a duration like 2h, 30d, RFC3339 timestamp, or unix seconds", value)
+	return time.Time{}, fmt.Errorf("invalid %s %q; use a duration like 2h, 30d, RFC3339 timestamp, or unix seconds", field, value)
 }
 
 type searchCmd struct {
