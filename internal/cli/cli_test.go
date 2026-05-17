@@ -404,6 +404,56 @@ func TestWriteErrorJSONEnvelopeAcceptsAssignedJSONFlag(t *testing.T) {
 	}
 }
 
+func TestHelpPrintsUsageAndSucceeds(t *testing.T) {
+	tests := []struct {
+		name     string
+		args     []string
+		contains []string
+	}{
+		{
+			name: "root",
+			args: []string{"--help"},
+			contains: []string{
+				"Usage: fincrawl <command>",
+				"Local-first support conversation archive.",
+				"sync",
+			},
+		},
+		{
+			name: "subcommand",
+			args: []string{"sync", "--help"},
+			contains: []string{
+				"Usage: fincrawl sync",
+				"--fixture=STRING",
+				"--updated-since=STRING",
+			},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			var stdout bytes.Buffer
+			var stderr bytes.Buffer
+
+			err := Run(context.Background(), tt.args, &stdout, &stderr)
+			if err != nil {
+				t.Fatalf("expected help to succeed, got %v", err)
+			}
+			if stderr.Len() != 0 {
+				t.Fatalf("stderr = %q", stderr.String())
+			}
+			for _, want := range tt.contains {
+				if !strings.Contains(stdout.String(), want) {
+					t.Fatalf("stdout missing %q:\n%s", want, stdout.String())
+				}
+			}
+			if strings.Contains(stdout.String(), `"ok": false`) {
+				t.Fatalf("stdout contains error envelope: %q", stdout.String())
+			}
+		})
+	}
+}
+
 func TestParserErrorsAreUsageErrors(t *testing.T) {
 	var stdout bytes.Buffer
 	var stderr bytes.Buffer

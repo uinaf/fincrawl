@@ -46,12 +46,32 @@ type commandContext struct {
 
 const liveHTTPTimeout = 90 * time.Second
 
-func Run(ctx context.Context, args []string, stdout, stderr io.Writer) error {
+type kongExit int
+
+func Run(ctx context.Context, args []string, stdout, stderr io.Writer) (err error) {
+	defer func() {
+		recovered := recover()
+		if recovered == nil {
+			return
+		}
+		exit, ok := recovered.(kongExit)
+		if !ok {
+			panic(recovered)
+		}
+		if exit != 0 {
+			err = fmt.Errorf("parser requested exit %d", exit)
+		}
+	}()
+
 	var cli app
 	parser, err := kong.New(&cli,
 		kong.Name("fincrawl"),
 		kong.Description("Local-first support conversation archive."),
 		kong.UsageOnError(),
+		kong.Writers(stdout, stderr),
+		kong.Exit(func(code int) {
+			panic(kongExit(code))
+		}),
 	)
 	if err != nil {
 		return err
