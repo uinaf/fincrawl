@@ -1,0 +1,187 @@
+{
+  "workspace": {
+    "id": "workspace_synthetic_support",
+    "provider": "intercom",
+    "name": "Synthetic Support Workspace",
+    "created_at": "2026-01-01T00:00:00Z"
+  },
+  "entities": {
+    "admins": [
+      {
+        "provider_id": "admin_syn_001",
+        "name": "Riley Example",
+        "email": "riley@example.invalid",
+        "team_ids": ["team_syn_support"],
+        "raw": {
+          "id": "admin_syn_001",
+          "type": "admin",
+          "source": "synthetic_fixture"
+        }
+      },
+      {
+        "provider_id": "admin_syn_002",
+        "name": "Morgan Example",
+        "email": "morgan@example.invalid",
+        "team_ids": ["team_syn_support"],
+        "raw": {
+          "id": "admin_syn_002",
+          "type": "admin",
+          "source": "synthetic_fixture"
+        }
+      }
+    ],
+    "teams": [
+      {
+        "provider_id": "team_syn_support",
+        "name": "Synthetic Support",
+        "raw": {
+          "id": "team_syn_support",
+          "type": "team",
+          "source": "synthetic_fixture"
+        }
+      }
+    ],
+    "tags": [
+      {
+        "provider_id": "tag_syn_billing",
+        "name": "billing",
+        "raw": {
+          "id": "tag_syn_billing",
+          "type": "tag",
+          "source": "synthetic_fixture"
+        }
+      },
+      {
+        "provider_id": "tag_syn_login",
+        "name": "login",
+        "raw": {
+          "id": "tag_syn_login",
+          "type": "tag",
+          "source": "synthetic_fixture"
+        }
+      }
+    ],
+    "contacts": [
+      {
+        "provider_id": "contact_syn_001",
+        "name": "Casey Customer",
+        "email": "casey@example.invalid",
+        "raw": {
+          "id": "contact_syn_001",
+          "type": "contact",
+          "source": "synthetic_fixture"
+        }
+      },
+      {
+        "provider_id": "contact_syn_002",
+        "name": "Jordan Customer",
+        "email": "jordan@example.invalid",
+        "raw": {
+          "id": "contact_syn_002",
+          "type": "contact",
+          "source": "synthetic_fixture"
+        }
+      }
+    ]
+  },
+  "conversations": [
+    {
+      "id": "conv_syn_001",
+      "provider": "intercom",
+      "provider_id": "ic_syn_001",
+      "subject": "Refund question for lunar invoice",
+      "state": "open",
+      "assignee": "Riley Example",
+      "rating": "positive",
+      "fin_status": "participated",
+      "participants": ["Casey Customer", "Riley Example"],
+      "tags": ["billing", "refund"],
+      "created_at": "2026-02-03T10:00:00Z",
+      "updated_at": "2026-02-03T10:15:00Z",
+      "parts": [
+        {
+          "id": "part_syn_001_a",
+          "provider_id": "ic_part_syn_001_a",
+          "type": "comment",
+          "author_name": "Casey Customer",
+          "body": "Can you explain the duplicate lunar invoice line?",
+          "created_at": "2026-02-03T10:00:00Z",
+          "updated_at": "2026-02-03T10:00:00Z",
+          "raw": {
+            "id": "ic_part_syn_001_a",
+            "type": "conversation_part",
+            "body_format": "plaintext"
+          }
+        },
+        {
+          "id": "part_syn_001_b",
+          "provider_id": "ic_part_syn_001_b",
+          "type": "comment",
+          "author_name": "Riley Example",
+          "body": "The duplicate line was voided and a synthetic refund marker was added.",
+          "created_at": "2026-02-03T10:15:00Z",
+          "updated_at": "2026-02-03T10:15:00Z",
+          "raw": {
+            "id": "ic_part_syn_001_b",
+            "type": "conversation_part",
+            "body_format": "plaintext"
+          }
+        }
+      ],
+      "raw": {
+        "id": "ic_syn_001",
+        "type": "conversation",
+        "source": "synthetic_fixture"
+      }
+    },
+    {
+      "id": "conv_syn_002",
+      "provider": "intercom",
+      "provider_id": "ic_syn_002",
+      "subject": "Login code expired after nebula reset",
+      "state": "closed",
+      "assignee": "Morgan Example",
+      "rating": "neutral",
+      "fin_status": "resolved",
+      "participants": ["Jordan Customer", "Morgan Example"],
+      "tags": ["login", "codes"],
+      "created_at": "2026-02-03T10:05:00Z",
+      "updated_at": "2026-02-03T10:15:00Z",
+      "parts": [
+        {
+          "id": "part_syn_002_a",
+          "provider_id": "ic_part_syn_002_a",
+          "type": "comment",
+          "author_name": "Jordan Customer",
+          "body": "The login code expired while I was resetting the nebula demo account.",
+          "created_at": "2026-02-03T10:05:00Z",
+          "updated_at": "2026-02-03T10:05:00Z",
+          "raw": {
+            "id": "ic_part_syn_002_a",
+            "type": "conversation_part",
+            "body_format": "plaintext"
+          }
+        },
+        {
+          "id": "part_syn_002_b",
+          "provider_id": "ic_part_syn_002_b",
+          "type": "comment",
+          "author_name": "Fin Synthetic",
+          "body": "Fin suggested requesting a fresh code and checking the device clock.",
+          "created_at": "2026-02-03T10:08:00Z",
+          "updated_at": "2026-02-03T10:08:00Z",
+          "raw": {
+            "id": "ic_part_syn_002_b",
+            "type": "conversation_part",
+            "body_format": "plaintext"
+          }
+        }
+      ],
+      "raw": {
+        "id": "ic_syn_002",
+        "type": "conversation",
+        "source": "synthetic_fixture"
+      }
+    }
+  ]
+}

@@ -1,0 +1,25 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+repo_root="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+cd "$repo_root"
+
+before_tidy="$(mktemp)"
+after_tidy="$(mktemp)"
+trap 'rm -f "$before_tidy" "$after_tidy"' EXIT
+
+git diff -- go.mod go.sum >"$before_tidy"
+go mod tidy
+git diff -- go.mod go.sum >"$after_tidy"
+if ! diff -u "$before_tidy" "$after_tidy"; then
+	echo "go mod tidy changed go.mod or go.sum; run go mod tidy and commit the result" >&2
+	exit 1
+fi
+go test ./...
+go vet ./...
+go test -race ./...
+./scripts/smoke
+go run ./cmd/fincrawl guard --json
+git diff --check
+
+echo "verify ok"

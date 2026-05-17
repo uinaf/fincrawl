@@ -1,0 +1,34 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+repo_root="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+cd "$repo_root"
+
+if [[ -n "${FINCRAWL_LIVE_HOME:-}" ]]; then
+  scratch="$FINCRAWL_LIVE_HOME"
+else
+  scratch="$(mktemp -d "${TMPDIR:-/tmp}/fincrawl-live-smoke.XXXXXX")"
+  cleanup() {
+    rm -rf "$scratch"
+  }
+  trap cleanup EXIT
+fi
+export FINCRAWL_HOME="$scratch"
+
+echo "using FINCRAWL_HOME=$FINCRAWL_HOME"
+go run ./cmd/fincrawl doctor --offline >/dev/null
+go run ./cmd/fincrawl sync --entities --dry-run >/dev/null
+go run ./cmd/fincrawl sync --entities >/dev/null
+
+if [[ -n "${FINCRAWL_LIVE_CONTACT_LIMIT:-}" && "${FINCRAWL_LIVE_CONTACT_LIMIT}" != "0" ]]; then
+  go run ./cmd/fincrawl sync --entities --contacts --limit "$FINCRAWL_LIVE_CONTACT_LIMIT" --dry-run >/dev/null
+  go run ./cmd/fincrawl sync --entities --contacts --limit "$FINCRAWL_LIVE_CONTACT_LIMIT" >/dev/null
+fi
+
+if [[ -n "${FINCRAWL_LIVE_UPDATED_SINCE:-}" ]]; then
+  go run ./cmd/fincrawl sync --updated-since "$FINCRAWL_LIVE_UPDATED_SINCE" --limit "${FINCRAWL_LIVE_CONVERSATION_LIMIT:-5}" --dry-run >/dev/null
+  go run ./cmd/fincrawl sync --updated-since "$FINCRAWL_LIVE_UPDATED_SINCE" --limit "${FINCRAWL_LIVE_CONVERSATION_LIMIT:-5}" >/dev/null
+fi
+
+go run ./cmd/fincrawl status >/dev/null
+echo "local live smoke ok"

@@ -1,0 +1,39 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+repo_root="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+cd "$repo_root"
+
+scratch="tmp/fincrawl-smoke-$$"
+home_dir="$scratch/home"
+archive_out="$scratch/fincrawl-smoke.jsonl.zst.age"
+recipient="age1n9zrm0rcxehv7cm55uqw27v9cguz4ev5dtyl7kxkn3vdpvap94ds2gn6rl"
+
+cleanup() {
+  rm -rf "$scratch"
+}
+trap cleanup EXIT
+
+mkdir -p "$scratch"
+
+go run ./cmd/fincrawl version --json >/dev/null
+FINCRAWL_HOME="$home_dir" go run ./cmd/fincrawl doctor --offline --json >/dev/null
+FINCRAWL_HOME="$home_dir" go run ./cmd/fincrawl sync --fixture testdata/synthetic --dry-run >/dev/null
+FINCRAWL_HOME="$home_dir" go run ./cmd/fincrawl sync --fixture testdata/synthetic --json >/dev/null
+FINCRAWL_HOME="$home_dir" go run ./cmd/fincrawl search Morgan --json | grep -q '"provider_id": "ic_syn_002"'
+FINCRAWL_HOME="$home_dir" go run ./cmd/fincrawl search Morgan --fields provider_id,subject --ndjson | grep -q '"provider_id":"ic_syn_002"'
+FINCRAWL_HOME="$home_dir" go run ./cmd/fincrawl archive \
+  --fixture testdata/synthetic \
+  --recipient "$recipient" \
+  --out "$archive_out" \
+  --dry-run >/dev/null
+FINCRAWL_HOME="$home_dir" go run ./cmd/fincrawl archive \
+  --fixture testdata/synthetic \
+  --recipient "$recipient" \
+  --out "$archive_out" \
+  --json >/dev/null
+test -s "$archive_out"
+FINCRAWL_HOME="$home_dir" go run ./cmd/fincrawl status --json >/dev/null
+FINCRAWL_HOME="$home_dir" go run ./cmd/fincrawl metadata --json >/dev/null
+
+echo "smoke ok"

@@ -1,0 +1,36 @@
+# Local secrets and operator config
+.env
+.env.*
+!.env.example
+!.env.local.example
+
+# Local stores and caches
+*.db
+*.db-*
+*.sqlite
+*.sqlite-*
+.fincrawl/
+var/
+tmp/
+
+# Archive outputs and generated artifacts
+*.jsonl
+*.jsonl.gz
+*.jsonl.zst
+*.jsonl.zst.age
+*.tar
+*.tar.gz
+*.tar.zst
+*.tar.zst.age
+*.log
+*.har
+logs/
+reports/
+screenshots/
+snapshots/
+transcripts/
+
+# Go build/test output
+bin/
+dist/
+coverage.out

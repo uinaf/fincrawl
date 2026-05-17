@@ -1,0 +1,78 @@
+[tools]
+go = "1.26.2"
+
+[tasks.verify]
+description = "Run the full local verification gate"
+run = "./scripts/verify"
+
+[tasks.smoke]
+description = "Run the offline synthetic CLI smoke test"
+run = "./scripts/smoke"
+
+[tasks.release-check]
+description = "Validate the GoReleaser configuration"
+run = "./scripts/release-check"
+
+[tasks.test]
+description = "Run Go tests"
+run = "go test ./..."
+
+[tasks.vet]
+description = "Run go vet"
+run = "go vet ./..."
+
+[tasks.race]
+description = "Run Go tests with the race detector"
+run = "go test -race ./..."
+
+[tasks.tidy]
+description = "Run go mod tidy"
+run = "go mod tidy"
+
+[tasks.guard]
+description = "Run tenant-data and artifact guardrails"
+run = "go run ./cmd/fincrawl guard --json"
+
+[tasks.doctor]
+description = "Check local configuration offline"
+run = "FINCRAWL_HOME=tmp/mise-fincrawl-home go run ./cmd/fincrawl doctor --offline --json"
+
+[tasks.describe]
+description = "Print command schemas"
+run = "go run ./cmd/fincrawl describe --json"
+
+[tasks.status]
+description = "Print archive status for tmp/mise-fincrawl-home"
+run = "FINCRAWL_HOME=tmp/mise-fincrawl-home go run ./cmd/fincrawl status --json"
+
+[tasks.sync-fixture]
+description = "Sync synthetic fixtures into tmp/mise-fincrawl-home"
+run = "FINCRAWL_HOME=tmp/mise-fincrawl-home go run ./cmd/fincrawl sync --fixture testdata/synthetic --json"
+
+[tasks.search-fixture]
+description = "Search the synthetic fixture archive in tmp/mise-fincrawl-home"
+run = "FINCRAWL_HOME=tmp/mise-fincrawl-home go run ./cmd/fincrawl search Morgan --json"
+
+[tasks.archive-dry-run]
+description = "Dry-run encrypted archive creation from synthetic fixtures"
+run = "go run ./cmd/fincrawl archive --fixture testdata/synthetic --recipient age1n9zrm0rcxehv7cm55uqw27v9cguz4ev5dtyl7kxkn3vdpvap94ds2gn6rl --out tmp/mise-archive.jsonl.zst.age --dry-run"
+
+[tasks.publish-dry-run]
+description = "Dry-run encrypted publish from tmp/mise-fincrawl-home"
+run = "FINCRAWL_HOME=tmp/mise-fincrawl-home go run ./cmd/fincrawl publish --recipient age1n9zrm0rcxehv7cm55uqw27v9cguz4ev5dtyl7kxkn3vdpvap94ds2gn6rl --out tmp/mise-publish.jsonl.zst.age --dry-run"
+
+[tasks.fixture-loop]
+description = "Sync, search, and publish-dry-run synthetic fixtures in tmp/mise-fincrawl-home"
+run = [
+  "FINCRAWL_HOME=tmp/mise-fincrawl-home go run ./cmd/fincrawl sync --fixture testdata/synthetic --json",
+  "FINCRAWL_HOME=tmp/mise-fincrawl-home go run ./cmd/fincrawl search Morgan --json",
+  "FINCRAWL_HOME=tmp/mise-fincrawl-home go run ./cmd/fincrawl publish --recipient age1n9zrm0rcxehv7cm55uqw27v9cguz4ev5dtyl7kxkn3vdpvap94ds2gn6rl --out tmp/mise-publish.jsonl.zst.age --dry-run",
+]
+
+[tasks.clean-local]
+description = "Remove mise local scratch state"
+run = "rm -rf tmp/mise-fincrawl-home tmp/mise-archive.jsonl.zst.age tmp/mise-publish.jsonl.zst.age"
+
+[tasks.live-smoke]
+description = "Run the local live Intercom smoke with ignored env credentials"
+run = "./scripts/local-live-smoke"

@@ -1,0 +1,47 @@
+version: 2
+
+project_name: fincrawl
+
+builds:
+  - id: fincrawl
+    main: ./cmd/fincrawl
+    binary: fincrawl
+    env:
+      - CGO_ENABLED=0
+    goos:
+      - darwin
+      - linux
+      - windows
+    goarch:
+      - amd64
+      - arm64
+    ldflags:
+      - -s -w
+      - -X github.com/uinaf/fincrawl/internal/buildinfo.Version={{ .Version }}
+      - -X github.com/uinaf/fincrawl/internal/buildinfo.Commit={{ .Commit }}
+      - -X github.com/uinaf/fincrawl/internal/buildinfo.Date={{ .Date }}
+
+archives:
+  - id: fincrawl
+    ids:
+      - fincrawl
+    name_template: "{{ .ProjectName }}_{{ .Version }}_{{ .Os }}_{{ .Arch }}"
+    formats:
+      - tar.gz
+    format_overrides:
+      - goos: windows
+        formats:
+          - zip
+
+checksum:
+  name_template: "{{ .ProjectName }}_{{ .Version }}_checksums.txt"
+
+snapshot:
+  version_template: "{{ incpatch .Version }}-next"
+
+changelog:
+  disable: true
+
+release:
+  mode: append
+  replace_existing_artifacts: true
