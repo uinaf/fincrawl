@@ -6,6 +6,7 @@ import (
 	"database/sql"
 	"encoding/hex"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -420,32 +421,108 @@ func upsertConversation(ctx context.Context, tx *sql.Tx, workspaceID string, con
 	if _, err := tx.ExecContext(ctx, `delete from conversation_parts where conversation_id = ?`, conversation.ID); err != nil {
 		return fmt.Errorf("clear parts: %w", err)
 	}
-	var bodies []string
-	for _, part := range conversation.Parts {
+	movedPartConversationIDs := map[string]struct{}{}
+	for _, part := range dedupeParts(conversation.ID, conversation.Parts) {
+		previousConversationID, err := existingPartConversationID(ctx, tx, conversation.Provider, part.ProviderID, conversation.ID)
+		if err != nil {
+			return err
+		}
+		if previousConversationID != "" {
+			movedPartConversationIDs[previousConversationID] = struct{}{}
+		}
 		if _, err := tx.ExecContext(ctx, `insert into conversation_parts(
 			id, conversation_id, provider, provider_id, part_type, author_name, body, created_at, updated_at
-		) values(?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+		) values(?, ?, ?, ?, ?, ?, ?, ?, ?)
+		on conflict(provider, provider_id) do update set
+			id=excluded.id,
+			conversation_id=excluded.conversation_id,
+			part_type=excluded.part_type,
+			author_name=excluded.author_name,
+			body=excluded.body,
+			created_at=excluded.created_at,
+			updated_at=excluded.updated_at`,
 			part.ID, conversation.ID, conversation.Provider, part.ProviderID, part.Type, part.AuthorName,
 			part.Body, part.CreatedAt, part.UpdatedAt); err != nil {
-			return fmt.Errorf("insert part %s: %w", part.ID, err)
+			return fmt.Errorf("upsert part %s: %w", part.ID, err)
 		}
 		result.ConversationParts++
-		bodies = append(bodies, part.Body)
 		rawCount, err := insertRawBlob(ctx, tx, conversation.Provider, "conversation_part", part.ProviderID, part.Raw)
 		if err != nil {
 			return err
 		}
 		result.RawBlobs += rawCount
 	}
-	if _, err := tx.ExecContext(ctx, `delete from conversation_fts where conversation_id = ?`, conversation.ID); err != nil {
+	if err := rebuildConversationFTS(ctx, tx, conversation.ID); err != nil {
+		return err
+	}
+	for movedConversationID := range movedPartConversationIDs {
+		if err := rebuildConversationFTS(ctx, tx, movedConversationID); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func existingPartConversationID(ctx context.Context, tx *sql.Tx, provider, providerID, currentConversationID string) (string, error) {
+	var conversationID string
+	err := tx.QueryRowContext(ctx, `select conversation_id from conversation_parts where provider = ? and provider_id = ? and conversation_id <> ?`, provider, providerID, currentConversationID).Scan(&conversationID)
+	if err == nil {
+		return conversationID, nil
+	}
+	if errors.Is(err, sql.ErrNoRows) {
+		return "", nil
+	}
+	return "", fmt.Errorf("lookup existing part %s: %w", providerID, err)
+}
+
+func rebuildConversationFTS(ctx context.Context, tx *sql.Tx, conversationID string) error {
+	if _, err := tx.ExecContext(ctx, `delete from conversation_fts where conversation_id = ?`, conversationID); err != nil {
 		return fmt.Errorf("clear fts: %w", err)
 	}
-	if _, err := tx.ExecContext(ctx, `insert into conversation_fts(conversation_id, subject, body, tags, participants, assignee, state, rating, fin_status) values(?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-		conversation.ID, conversation.Subject, strings.Join(bodies, "\n"), strings.Join(conversation.Tags, " "), strings.Join(conversation.Participants, " "),
-		conversation.Assignee, conversation.State, conversation.Rating, conversation.FinStatus); err != nil {
+	if _, err := tx.ExecContext(ctx, `insert into conversation_fts(conversation_id, subject, body, tags, participants, assignee, state, rating, fin_status)
+		select c.id,
+			c.subject,
+			coalesce((select group_concat(body, char(10)) from (select p.body as body from conversation_parts p where p.conversation_id = c.id order by p.updated_at, p.provider_id)), ''),
+			coalesce((select group_concat(name, ' ') from (select t.name as name from conversation_tags ct join tags t on t.id = ct.tag_id where ct.conversation_id = c.id order by t.name)), ''),
+			coalesce((select group_concat(name, ' ') from (select cp.name as name from conversation_participants cp where cp.conversation_id = c.id order by cp.name)), ''),
+			c.assignee,
+			c.state,
+			c.rating,
+			c.fin_status
+		from conversations c
+		where c.id = ?`, conversationID); err != nil {
 		return fmt.Errorf("insert fts: %w", err)
 	}
 	return nil
+}
+
+func dedupeParts(conversationID string, parts []Part) []Part {
+	seen := make(map[string]int, len(parts))
+	deduped := make([]Part, 0, len(parts))
+	for index, part := range parts {
+		part = normalizePartIdentity(conversationID, part, index)
+		key := part.ProviderID
+		if existing, ok := seen[key]; ok {
+			deduped[existing] = part
+			continue
+		}
+		seen[key] = len(deduped)
+		deduped = append(deduped, part)
+	}
+	return deduped
+}
+
+func normalizePartIdentity(conversationID string, part Part, index int) Part {
+	if strings.TrimSpace(part.ProviderID) == "" {
+		part.ProviderID = strings.TrimSpace(part.ID)
+	}
+	if strings.TrimSpace(part.ProviderID) == "" {
+		part.ProviderID = fmt.Sprintf("%s:part:%d", conversationID, index+1)
+	}
+	if strings.TrimSpace(part.ID) == "" {
+		part.ID = "part_" + stableID(part.ProviderID)
+	}
+	return part
 }
 
 func insertRawBlob(ctx context.Context, tx *sql.Tx, provider, recordType, providerID string, raw map[string]any) (int, error) {
