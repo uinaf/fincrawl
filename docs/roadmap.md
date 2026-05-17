@@ -12,6 +12,7 @@ this repo.
 - Offline `doctor`, `metadata`, `status`, `describe`, and `guard` commands.
 - Synthetic fixture sync for deterministic tests.
 - SQLite archive with FTS-backed search.
+- Search filters for state, tag, and Intercom-exposed Fin status.
 - Read-only Intercom entity sync for admins, teams, tags, and capped contacts
   when scopes allow.
 - Exact conversation hydration and bounded updated-since tail sync.

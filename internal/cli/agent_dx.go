@@ -152,12 +152,17 @@ func describeCommands(command string) (cliSchema, error) {
 				},
 				Flags: []paramSchema{
 					{Name: "limit", Type: "int", Default: "20", Help: "Maximum results."},
+					{Name: "state", Type: "string", Help: "Filter by exact conversation state, such as open, closed, or snoozed."},
+					{Name: "fin-status", Type: "string", Help: "Filter by exact Intercom-exposed Fin status."},
+					{Name: "tag", Type: "string", Help: "Filter by exact tag name."},
 					{Name: "fields", Type: "field-list", Help: "Comma-separated fields to include in output."},
 					{Name: "ndjson", Type: "bool", Help: "Print one JSON result per line."},
 					{Name: "json", Type: "bool", Default: "true", Help: "Print JSON output."},
 				},
 				Examples: []string{
 					"fincrawl search \"billing refund\" --limit 10",
+					"fincrawl search \"billing refund\" --state open --tag billing",
+					"fincrawl search \"login\" --fin-status resolved",
 					"fincrawl search \"billing refund\" --fields provider_id,subject,updated_at --ndjson",
 				},
 				Notes: []string{"Allowed fields: id, provider_id, subject, state, assignee, rating, fin_status, participants, tags, updated_at, snippet."},

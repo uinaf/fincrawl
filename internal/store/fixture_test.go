@@ -79,6 +79,27 @@ func TestSyncFixtureAndSearch(t *testing.T) {
 	if len(results) != 1 || results[0].ProviderID != "ic_syn_002" {
 		t.Fatalf("fin status results = %#v", results)
 	}
+	results, err = SearchWithOptions(ctx, dbPath, "invoice", SearchOptions{Limit: 10, State: "open", Tag: "billing"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(results) != 1 || results[0].ProviderID != "ic_syn_001" {
+		t.Fatalf("filtered invoice results = %#v", results)
+	}
+	results, err = SearchWithOptions(ctx, dbPath, "invoice", SearchOptions{Limit: 10, State: "closed"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(results) != 0 {
+		t.Fatalf("closed invoice results = %#v, want none", results)
+	}
+	results, err = SearchWithOptions(ctx, dbPath, "login", SearchOptions{Limit: 10, FinStatus: "resolved"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(results) != 1 || results[0].ProviderID != "ic_syn_002" {
+		t.Fatalf("fin-filtered login results = %#v", results)
+	}
 	st, err := ckstore.OpenReadOnly(ctx, dbPath)
 	if err != nil {
 		t.Fatal(err)

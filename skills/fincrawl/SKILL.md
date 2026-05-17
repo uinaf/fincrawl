@@ -30,6 +30,8 @@ CLI is not installed.
 
 ```bash
 fincrawl search "login code refund" --fields provider_id,subject,updated_at
+fincrawl search "login code refund" --state open --fields provider_id,subject,updated_at,state
+fincrawl search "login" --fin-status resolved --fields provider_id,subject,fin_status,updated_at
 ```
 
 2. If local data is empty or stale, ask whether live Intercom refresh is allowed

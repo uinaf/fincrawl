@@ -23,6 +23,8 @@ fincrawl sync --updated-since 2h --limit 50
 fincrawl sync --resume
 fincrawl sync --conversation <id>
 fincrawl search "billing refund" --json
+fincrawl search "billing refund" --state open --tag billing
+fincrawl search "login" --fin-status resolved
 fincrawl archive --fixture testdata/synthetic --recipient <age-recipient> --out tmp/archive.jsonl.zst.age
 fincrawl publish --recipient <age-recipient> --out snapshots/local.jsonl.zst.age
 fincrawl import --identity <age-identity> --in snapshots/local.jsonl.zst.age
