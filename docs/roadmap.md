@@ -21,7 +21,7 @@ this repo.
 - Repository guardrails for plaintext archives, generated artifacts, secret
   patterns, provider URLs, and transcript-like files.
 - Agent-facing skill guidance under `skills/fincrawl/`.
-- CI/release automation for `0.0.x` bootstrap releases.
+- CI/release automation for `0.0.x` bootstrap releases with protected `main`.
 
 ## Next
 

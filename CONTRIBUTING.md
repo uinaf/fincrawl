@@ -6,14 +6,13 @@ or transcript-derived examples.
 
 ## Setup
 
-Use the repo scripts as the source of truth:
+Install Go using the version in `go.mod`, then run the smoke check:
 
 ```bash
 ./scripts/smoke
-./scripts/verify
 ```
 
-`mise` is available as a task index for local convenience:
+`mise` is available as a convenience task index:
 
 ```bash
 mise trust mise.toml
@@ -24,7 +23,48 @@ Use `FINCRAWL_HOME=<scratch-dir>` for manual CLI runs that should not touch the
 default user state. Keep scratch homes under ignored paths such as `tmp/` or a
 system temp directory.
 
+## Run Locally
+
+Use the source checkout while developing:
+
+```bash
+go run ./cmd/fincrawl doctor --offline
+go run ./cmd/fincrawl sync --fixture testdata/synthetic
+go run ./cmd/fincrawl search Morgan --fields provider_id,subject,updated_at
+```
+
+Live Intercom testing is optional and local. Load credentials through ignored
+environment files or direct environment variables. Do not paste command output
+containing tenant data into commits, docs, issues, or pull requests.
+
+See [Local live smoke](docs/runbooks/local-live-smoke.md) for the safe local
+workflow.
+
+## Validation
+
+Run the full local gate before opening a pull request:
+
+```bash
+./scripts/verify
+```
+
+For release configuration changes, also run:
+
+```bash
+./scripts/release-check
+```
+
+For docs-only changes, at minimum check the linked doc surface and run the repo
+guard:
+
+```bash
+for f in README.md CONTRIBUTING.md SECURITY.md docs/architecture.md docs/roadmap.md docs/distribution.md docs/runbooks/open-source-readiness.md docs/runbooks/local-live-smoke.md docs/tenant-data-boundary.md docs/references/intercom-api.md skills/fincrawl/SKILL.md; do test -f "$f" || { echo "missing $f"; exit 1; }; done
+go run ./cmd/fincrawl guard --json
+```
+
 ## Data Boundary
+
+Committed fixtures must be synthetic and intentionally small.
 
 Do not commit:
 
@@ -37,37 +77,21 @@ Do not commit:
   or cache directories.
 - Fixtures copied from real conversations, even if redacted.
 
-Committed fixtures must be synthetic and intentionally small.
+Use [Tenant data boundary](docs/tenant-data-boundary.md) as the source of truth
+when a change touches credentials, live sync, snapshots, logs, fixtures, or
+agent-facing examples.
 
-## Local Live Testing
+## Pull Requests
 
-Live Intercom testing is optional and local. Load credentials through ignored
-environment files or direct environment variables. Do not paste command output
-containing tenant data into commits, docs, issues, or pull requests.
+Keep pull requests scoped. Include:
 
-See [Local live smoke](docs/runbooks/local-live-smoke.md) for the safe local
-workflow.
+- What changed.
+- How it was verified.
+- Whether tenant-data boundaries, local state, or generated artifacts are
+  affected.
+- Any remaining manual proof needed.
 
-## Verification
-
-Before opening a pull request or committing a non-trivial change, run:
-
-```bash
-./scripts/verify
-```
-
-For release configuration changes, also run:
-
-```bash
-./scripts/release-check
-```
-
-For docs-only changes, at minimum check links and run the guard:
-
-```bash
-for f in CONTRIBUTING.md SECURITY.md README.md docs/architecture.md docs/roadmap.md docs/runbooks/open-source-readiness.md docs/runbooks/local-live-smoke.md docs/tenant-data-boundary.md docs/references/intercom-api.md skills/fincrawl/SKILL.md; do test -f "$f" || { echo "missing $f"; exit 1; }; done
-go run ./cmd/fincrawl guard --json
-```
+The pull request template asks for the same evidence in a compact form.
 
 ## Commit Style
 
@@ -85,14 +109,5 @@ docs(security): clarify tenant artifact boundary
 ```
 
 The release pipeline uses Conventional Commit metadata to decide patch releases
-on the `0.0.x` bootstrap line.
-
-## Pull Requests
-
-Keep pull requests scoped. Include:
-
-- What changed.
-- How it was verified.
-- Whether tenant-data boundaries, local state, or generated artifacts are
-  affected.
-- Any remaining manual proof needed.
+on the `0.0.x` bootstrap line. See [Distribution](docs/distribution.md) for the
+release model.

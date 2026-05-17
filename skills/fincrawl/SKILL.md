@@ -1,6 +1,6 @@
 ---
 name: fincrawl
-description: Use when an agent needs to search support tickets, customer conversations, Intercom or Fin history, query a local fincrawl archive for ticket details or resolution patterns, run bounded live syncs, inspect archive readiness, or enforce tenant-data boundaries while using fincrawl as a local agent cache.
+description: Use when an agent needs to search support tickets, customer conversations, Intercom history including Fin-authored conversations or metadata, query a local fincrawl archive for ticket details or resolution patterns, run bounded live syncs, inspect archive readiness, or enforce tenant-data boundaries while using fincrawl as a local agent cache.
 ---
 
 # fincrawl

@@ -2,11 +2,12 @@
 
 Status: active
 
-`fincrawl` is a local-first support conversation archive CLI. The reusable repo
-owns generic crawling, storage, search, artifact, guardrail, release, and
-agent-facing mechanics. Tenant credentials, tenant config, runtime state,
-generated artifacts, logs, reports, screenshots, and transcript-derived examples
-stay outside this repo.
+`fincrawl` is a local-first support conversation archive CLI for Intercom
+workspaces, including conversation metadata that Intercom exposes for Fin
+participation. The reusable repo owns generic crawling, storage, search,
+artifact, guardrail, release, and agent-facing mechanics. Tenant credentials,
+tenant config, runtime state, generated artifacts, logs, reports, screenshots,
+and transcript-derived examples stay outside this repo.
 
 ## Current Surface
 
