@@ -34,3 +34,18 @@ git config core.hooksPath .git-hooks
 
 The pre-push hook runs tests, vet, smoke, and guardrails.
 The commit-msg hook enforces Conventional Commit subjects for semantic-release.
+
+## Docs
+
+- [Architecture](docs/architecture.md): CLI, storage, sync, artifact, and
+  agent-use shape.
+- [Tenant data boundary](docs/tenant-data-boundary.md): what must stay out of
+  this repo.
+- [Distribution](docs/distribution.md): CI, release, and versioning contract.
+- [Roadmap](docs/roadmap.md): current product surface and next work.
+- [Local live smoke](docs/runbooks/local-live-smoke.md): bounded live Intercom
+  proof.
+- [Agent skill](skills/fincrawl/SKILL.md): how agents should use installed
+  archives.
+
+`CLAUDE.md` is a symlink to this file; keep one authored agent guide.
