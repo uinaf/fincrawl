@@ -160,5 +160,4 @@ binaries for Linux, macOS, and Windows and appends them to the GitHub Release.
 
 ## License
 
-No public license has been selected yet. Add an explicit `LICENSE` file before
-making this repository public or accepting outside reuse.
+`fincrawl` is released under the [MIT License](LICENSE).
