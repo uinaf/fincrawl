@@ -139,6 +139,123 @@ func TestSyncConversationsDefaultsWorkspaceForEmptyImports(t *testing.T) {
 	}
 }
 
+func TestSyncConversationsUpsertsDuplicateProviderParts(t *testing.T) {
+	ctx := context.Background()
+	dbPath := filepath.Join(t.TempDir(), "archive.db")
+	workspace := Workspace{ID: "synthetic_workspace", Provider: ProviderIntercom, Name: "Synthetic Workspace", CreatedAt: "2026-01-01T00:00:00Z"}
+	conversations := []Conversation{
+		{
+			ID:         "conversation_syn_001",
+			Provider:   ProviderIntercom,
+			ProviderID: "syn_001",
+			Subject:    "Synthetic first thread",
+			State:      "open",
+			CreatedAt:  "2026-01-01T00:00:00Z",
+			UpdatedAt:  "2026-01-01T01:00:00Z",
+			Parts: []Part{
+				{ID: "part_syn_shared", ProviderID: "syn_shared", Type: "comment", AuthorName: "Synthetic User", Body: "Original synthetic body", CreatedAt: "2026-01-01T00:05:00Z", UpdatedAt: "2026-01-01T00:05:00Z"},
+			},
+		},
+		{
+			ID:         "conversation_syn_002",
+			Provider:   ProviderIntercom,
+			ProviderID: "syn_002",
+			Subject:    "Synthetic second thread",
+			State:      "open",
+			CreatedAt:  "2026-01-01T02:00:00Z",
+			UpdatedAt:  "2026-01-01T03:00:00Z",
+			Parts: []Part{
+				{ID: "part_syn_shared", ProviderID: "syn_shared", Type: "comment", AuthorName: "Synthetic User", Body: "Duplicate synthetic body", CreatedAt: "2026-01-01T02:05:00Z", UpdatedAt: "2026-01-01T02:05:00Z"},
+				{ID: "part_syn_shared", ProviderID: "syn_shared", Type: "comment", AuthorName: "Synthetic User", Body: "Latest duplicate synthetic body", CreatedAt: "2026-01-01T02:06:00Z", UpdatedAt: "2026-01-01T02:06:00Z"},
+			},
+		},
+	}
+
+	if _, err := SyncConversations(ctx, dbPath, workspace, conversations); err != nil {
+		t.Fatal(err)
+	}
+
+	st, err := ckstore.OpenReadOnly(ctx, dbPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer st.Close()
+	var count int
+	var conversationID string
+	var body string
+	if err := st.DB().QueryRowContext(ctx, `select count(*), max(conversation_id), max(body) from conversation_parts where provider = ? and provider_id = ?`, ProviderIntercom, "syn_shared").Scan(&count, &conversationID, &body); err != nil {
+		t.Fatal(err)
+	}
+	if count != 1 {
+		t.Fatalf("duplicate part rows = %d, want 1", count)
+	}
+	if conversationID != "conversation_syn_002" {
+		t.Fatalf("duplicate part conversation = %q, want conversation_syn_002", conversationID)
+	}
+	if body != "Latest duplicate synthetic body" {
+		t.Fatalf("duplicate part body = %q, want latest body", body)
+	}
+	results, err := Search(ctx, dbPath, "Original synthetic body", 10)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(results) != 0 {
+		t.Fatalf("stale duplicate body results = %#v, want none", results)
+	}
+	results, err = Search(ctx, dbPath, "Latest duplicate synthetic body", 10)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(results) != 1 || results[0].ProviderID != "syn_002" {
+		t.Fatalf("latest duplicate body results = %#v", results)
+	}
+}
+
+func TestSyncConversationsNormalizesBlankPartProviderIDs(t *testing.T) {
+	ctx := context.Background()
+	dbPath := filepath.Join(t.TempDir(), "archive.db")
+	workspace := Workspace{ID: "synthetic_workspace", Provider: ProviderIntercom, Name: "Synthetic Workspace", CreatedAt: "2026-01-01T00:00:00Z"}
+	conversations := []Conversation{
+		{
+			ID:         "conversation_syn_blank_parts",
+			Provider:   ProviderIntercom,
+			ProviderID: "syn_blank_parts",
+			Subject:    "Synthetic blank provider parts",
+			State:      "open",
+			CreatedAt:  "2026-01-01T00:00:00Z",
+			UpdatedAt:  "2026-01-01T01:00:00Z",
+			Parts: []Part{
+				{ID: "part_syn_blank_001", Type: "comment", AuthorName: "Synthetic User", Body: "Synthetic blank one", CreatedAt: "2026-01-01T00:05:00Z", UpdatedAt: "2026-01-01T00:05:00Z"},
+				{ID: "part_syn_blank_002", Type: "comment", AuthorName: "Synthetic User", Body: "Synthetic blank two", CreatedAt: "2026-01-01T00:06:00Z", UpdatedAt: "2026-01-01T00:06:00Z"},
+			},
+		},
+	}
+
+	if _, err := SyncConversations(ctx, dbPath, workspace, conversations); err != nil {
+		t.Fatal(err)
+	}
+
+	st, err := ckstore.OpenReadOnly(ctx, dbPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer st.Close()
+	var count int
+	if err := st.DB().QueryRowContext(ctx, `select count(*) from conversation_parts where conversation_id = ?`, "conversation_syn_blank_parts").Scan(&count); err != nil {
+		t.Fatal(err)
+	}
+	if count != 2 {
+		t.Fatalf("blank provider part rows = %d, want 2", count)
+	}
+	results, err := Search(ctx, dbPath, "Synthetic blank one", 10)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(results) != 1 || results[0].ProviderID != "syn_blank_parts" {
+		t.Fatalf("blank provider part search results = %#v", results)
+	}
+}
+
 func TestSyncFixtureMigratesLegacyFTSShape(t *testing.T) {
 	ctx := context.Background()
 	dbPath := filepath.Join(t.TempDir(), "archive.db")
