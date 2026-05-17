@@ -1,23 +1,22 @@
 # Open Source Readiness
 
-Status: active pre-publication checklist
+Status: active public-repository checklist
 
-`fincrawl` is designed to be public generic infrastructure. The reusable repo
-may be made public only after the checks below pass and an owner explicitly
-approves the visibility change.
+`fincrawl` is public generic infrastructure. Use this checklist before major
+public-facing changes, release pipeline changes, or any future history rewrite.
 
 Tenant stores stay private. Making `uinaf/fincrawl` public does not make any
 tenant credentials, tenant config, encrypted snapshots, plaintext scratch data,
 logs, reports, screenshots, summaries, or transcript-derived examples public.
 
-## Blockers Before Public Visibility
+## Public Baseline
 
-- Add an explicit `LICENSE` file. Until then, the repository is source-visible
-  only to existing private collaborators and is not open for public reuse.
-- Enable or confirm a private security reporting path for the public repo.
-- Confirm the current tree, history, release pipeline, and docs contain no
+- `LICENSE` declares the public reuse terms.
+- `SECURITY.md` points reporters to `dev@uinaf.dev` and GitHub private
+  vulnerability reporting.
+- The current tree, history, release pipeline, and docs should contain no
   tenant-derived residue.
-- Confirm the repository owner explicitly approves the visibility flip.
+- Repository metadata should stay aligned with the public CLI surface.
 
 ## Current Tree Audit
 
@@ -89,7 +88,7 @@ visibility.
 
 ## Public Repo Metadata
 
-Before flipping visibility, set public-facing metadata:
+Keep public-facing metadata aligned:
 
 - Description: `Local-first support conversation archive CLI`
 - Topics: `intercom`, `support`, `archive`, `sqlite`, `age-encryption`,
@@ -103,23 +102,16 @@ After the repo is public, private tenant-store workflows may stop using a
 source checkout token for `uinaf/fincrawl`, but tenant provider credentials and
 artifact storage must remain private.
 
-## Visibility Flip
+## Visibility Check
 
-Only run the visibility change after the blockers are cleared and the owner has
-explicitly approved it in the current work session:
-
-```bash
-gh repo edit uinaf/fincrawl --visibility public --accept-visibility-change-consequences
-```
-
-Immediately after the flip, run:
+Confirm visibility and metadata with:
 
 ```bash
 gh repo view uinaf/fincrawl --json visibility,isPrivate,licenseInfo,securityPolicyUrl,repositoryTopics
 ```
 
-Then confirm the public release and CI surfaces still work without exposing
-tenant data:
+Confirm the public release and CI surfaces still work without exposing tenant
+data:
 
 ```bash
 ./scripts/verify

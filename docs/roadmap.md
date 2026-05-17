@@ -25,9 +25,6 @@ this repo.
 
 ## Next
 
-- Choose a public license and complete the
-  [open-source readiness](runbooks/open-source-readiness.md) checklist.
-- Enable or confirm private vulnerability reporting before public visibility.
 - Tighten local search result ranking and result fields from stored entity data.
 - Improve import/search ergonomics for read-only subscribers.
 - Add a small, generic tenant-store wrapper contract without committing tenant

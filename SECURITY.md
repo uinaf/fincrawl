@@ -7,10 +7,12 @@ screenshots.
 
 ## Reporting
 
-Use GitHub private vulnerability reporting. It must be enabled before this
-repository is made public. If private reporting is unexpectedly unavailable,
-open a minimal public issue asking for a private disclosure channel and include
-no exploit details, secrets, tenant identifiers, or transcript text.
+Please report vulnerabilities privately by emailing `dev@uinaf.dev`.
+
+GitHub private vulnerability reporting is also enabled for this repository. If
+both private channels are unexpectedly unavailable, open a minimal public issue
+asking for a private disclosure channel and include no exploit details, secrets,
+tenant identifiers, or transcript text.
 
 ## Sensitive Data Rules
 
