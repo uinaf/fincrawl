@@ -24,6 +24,13 @@ type SearchResult struct {
 	Snippet      string   `json:"snippet"`
 }
 
+type SearchOptions struct {
+	Limit     int
+	State     string
+	FinStatus string
+	Tag       string
+}
+
 type CountsResult struct {
 	Conversations     int64
 	ConversationParts int64
@@ -35,9 +42,11 @@ type CountsResult struct {
 }
 
 func Search(ctx context.Context, dbPath, query string, limit int) ([]SearchResult, error) {
-	if limit <= 0 {
-		limit = 20
-	}
+	return SearchWithOptions(ctx, dbPath, query, SearchOptions{Limit: limit})
+}
+
+func SearchWithOptions(ctx context.Context, dbPath, query string, opts SearchOptions) ([]SearchResult, error) {
+	opts = normalizeSearchOptions(opts)
 	if SanitizeFTSQuery(query) == "" {
 		return nil, fmt.Errorf("empty search query")
 	}
@@ -46,11 +55,21 @@ func Search(ctx context.Context, dbPath, query string, limit int) ([]SearchResul
 		return nil, err
 	}
 	defer st.Close()
-	results, err := searchFTS(ctx, st.DB(), query, limit)
+	results, err := searchFTS(ctx, st.DB(), query, opts)
 	if err == nil && len(results) > 0 {
 		return results, nil
 	}
-	return searchLike(ctx, st.DB(), query, limit)
+	return searchLike(ctx, st.DB(), query, opts)
+}
+
+func normalizeSearchOptions(opts SearchOptions) SearchOptions {
+	if opts.Limit <= 0 {
+		opts.Limit = 20
+	}
+	opts.State = strings.TrimSpace(opts.State)
+	opts.FinStatus = strings.TrimSpace(opts.FinStatus)
+	opts.Tag = strings.TrimSpace(opts.Tag)
+	return opts
 }
 
 func Counts(ctx context.Context, dbPath string) (CountsResult, error) {
@@ -107,7 +126,7 @@ func tableExists(ctx context.Context, db *sql.DB, table string) (bool, error) {
 	return count > 0, nil
 }
 
-func searchFTS(ctx context.Context, db *sql.DB, query string, limit int) ([]SearchResult, error) {
+func searchFTS(ctx context.Context, db *sql.DB, query string, opts SearchOptions) ([]SearchResult, error) {
 	ftsQuery := SanitizeFTSQuery(query)
 	if ftsQuery == "" {
 		return nil, fmt.Errorf("empty search query")
@@ -124,6 +143,9 @@ func searchFTS(ctx context.Context, db *sql.DB, query string, limit int) ([]Sear
 	if !hasParticipantTable {
 		participantsSelect = `conversation_fts.participants`
 	}
+	filters, args := searchFilters(opts)
+	args = append([]any{ftsQuery}, args...)
+	args = append(args, opts.Limit)
 	rows, err := db.QueryContext(ctx, fmt.Sprintf(`select c.id, c.provider_id, c.subject, c.state, c.assignee, c.rating, c.fin_status, c.updated_at,
 		%s as participants,
 		coalesce((select group_concat(t.name, ', ') from conversation_tags ct join tags t on t.id = ct.tag_id where ct.conversation_id = c.id), '') as tags,
@@ -131,8 +153,9 @@ func searchFTS(ctx context.Context, db *sql.DB, query string, limit int) ([]Sear
 	from conversation_fts
 	join conversations c on c.id = conversation_fts.conversation_id
 	where conversation_fts match ?
+	%s
 	order by c.updated_at desc
-	limit ?`, participantsSelect), ftsQuery, limit)
+	limit ?`, participantsSelect, filters), args...)
 	if err != nil {
 		return nil, err
 	}
@@ -140,7 +163,7 @@ func searchFTS(ctx context.Context, db *sql.DB, query string, limit int) ([]Sear
 	return scanResults(rows)
 }
 
-func searchLike(ctx context.Context, db *sql.DB, query string, limit int) ([]SearchResult, error) {
+func searchLike(ctx context.Context, db *sql.DB, query string, opts SearchOptions) ([]SearchResult, error) {
 	like := "%" + strings.ToLower(strings.TrimSpace(query)) + "%"
 	participantsSelect := `coalesce(
 		nullif((select group_concat(cp.name, ', ') from conversation_participants cp where cp.conversation_id = c.id), ''),
@@ -157,26 +180,57 @@ func searchLike(ctx context.Context, db *sql.DB, query string, limit int) ([]Sea
 		participantsSelect = `coalesce((select f.participants from conversation_fts f where f.conversation_id = c.id), '')`
 		participantPredicate = `or exists(select 1 from conversation_fts f where f.conversation_id = c.id and lower(f.participants) like ?)`
 	}
-	args = append(args, like, like, like, like, limit)
+	args = append(args, like, like, like, like)
+	filters, filterArgs := searchFilters(opts)
+	args = append(args, filterArgs...)
+	args = append(args, opts.Limit)
 	rows, err := db.QueryContext(ctx, fmt.Sprintf(`select c.id, c.provider_id, c.subject, c.state, c.assignee, c.rating, c.fin_status, c.updated_at,
 		%s as participants,
 		coalesce((select group_concat(t.name, ', ') from conversation_tags ct join tags t on t.id = ct.tag_id where ct.conversation_id = c.id), '') as tags,
 		substr(coalesce((select group_concat(p.body, ' ') from conversation_parts p where p.conversation_id = c.id), c.subject), 1, 240) as snippet
 	from conversations c
-	where lower(c.subject) like ?
+	where (
+		lower(c.subject) like ?
 		or exists(select 1 from conversation_parts p where p.conversation_id = c.id and lower(p.body) like ?)
 		or exists(select 1 from conversation_tags ct join tags t on t.id = ct.tag_id where ct.conversation_id = c.id and lower(t.name) like ?)
 		%s
 		or lower(c.assignee) like ?
 		or lower(c.rating) like ?
 		or lower(c.fin_status) like ?
+	)
+		%s
 	order by c.updated_at desc
-	limit ?`, participantsSelect, participantPredicate), args...)
+	limit ?`, participantsSelect, participantPredicate, filters), args...)
 	if err != nil {
 		return nil, err
 	}
 	defer rows.Close()
 	return scanResults(rows)
+}
+
+func searchFilters(opts SearchOptions) (string, []any) {
+	var clauses []string
+	var args []any
+	if opts.State != "" {
+		clauses = append(clauses, "and lower(c.state) = lower(?)")
+		args = append(args, opts.State)
+	}
+	if opts.FinStatus != "" {
+		clauses = append(clauses, "and lower(c.fin_status) = lower(?)")
+		args = append(args, opts.FinStatus)
+	}
+	if opts.Tag != "" {
+		clauses = append(clauses, `and exists(
+			select 1 from conversation_tags ct
+			join tags t on t.id = ct.tag_id
+			where ct.conversation_id = c.id and lower(t.name) = lower(?)
+		)`)
+		args = append(args, opts.Tag)
+	}
+	if len(clauses) == 0 {
+		return "", nil
+	}
+	return "\n\t" + strings.Join(clauses, "\n\t"), args
 }
 
 func scanResults(rows *sql.Rows) ([]SearchResult, error) {

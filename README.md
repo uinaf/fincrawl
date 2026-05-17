@@ -100,6 +100,8 @@ Common flows:
 | Sync a recent window | `fincrawl sync --updated-since 2h --limit 50` |
 | Hydrate one conversation | `fincrawl sync --conversation <id>` |
 | Search local archive | `fincrawl search "<query>" --fields provider_id,subject,updated_at` |
+| Filter search results | `fincrawl search "<query>" --state open --tag billing` |
+| Find Fin-status matches | `fincrawl search "<query>" --fin-status resolved` |
 | Export encrypted snapshot | `fincrawl publish --recipient <recipient> --out snapshots/local.jsonl.zst.age` |
 | Import encrypted snapshot | `fincrawl import --identity <identity> --in snapshots/local.jsonl.zst.age` |
 | Check repo guardrails | `fincrawl guard --json` |

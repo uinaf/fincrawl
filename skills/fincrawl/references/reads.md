@@ -9,6 +9,9 @@ fincrawl search "billing refund"
 fincrawl search "login code expired" --limit 10
 fincrawl search "login code expired" --fields provider_id,subject,updated_at
 fincrawl search "login code expired" --fields provider_id,subject,updated_at --ndjson
+fincrawl search "login code expired" --state open --fields provider_id,subject,state,updated_at
+fincrawl search "login" --fin-status resolved --fields provider_id,subject,fin_status,updated_at
+fincrawl search "billing refund" --tag billing --fields provider_id,subject,tags,updated_at
 ```
 
 Keep queries short and concrete. Combine product terms, problem words, tag-like
@@ -18,6 +21,12 @@ useful.
 Use `--fields` when the task only needs a compact subset. For first-pass lookup,
 prefer `provider_id,subject,updated_at,state`; add `snippet`, `participants`, or
 `tags` only when needed.
+
+Use exact filters when the user asks for a subset:
+
+- `--state open`, `--state closed`, or another provider state.
+- `--fin-status <status>` for Intercom-exposed Fin status metadata.
+- `--tag <tag>` for one exact tag.
 
 Use `--ndjson` when handling many search results or when line-by-line streaming
 is simpler than a JSON array.

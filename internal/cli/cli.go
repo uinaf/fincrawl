@@ -373,11 +373,14 @@ func parseSince(value string, now time.Time) (time.Time, error) {
 }
 
 type searchCmd struct {
-	Query  string `arg:"" help:"Search query."`
-	Limit  int    `help:"Maximum results." default:"20"`
-	Fields string `help:"Comma-separated fields to include in JSON/text output."`
-	NDJSON bool   `name:"ndjson" help:"Print one JSON result per line."`
-	JSON   bool   `help:"Print JSON output." default:"true"`
+	Query     string `arg:"" help:"Search query."`
+	Limit     int    `help:"Maximum results." default:"20"`
+	State     string `help:"Filter by exact conversation state, such as open, closed, or snoozed."`
+	FinStatus string `name:"fin-status" help:"Filter by exact Intercom-exposed Fin status."`
+	Tag       string `help:"Filter by exact tag name."`
+	Fields    string `help:"Comma-separated fields to include in JSON/text output."`
+	NDJSON    bool   `name:"ndjson" help:"Print one JSON result per line."`
+	JSON      bool   `help:"Print JSON output." default:"true"`
 }
 
 func (cmd searchCmd) Run(ctx commandContext) error {
@@ -388,7 +391,12 @@ func (cmd searchCmd) Run(ctx commandContext) error {
 	if err := validateSearchFields(cmd.Fields); err != nil {
 		return output.UsageError{Err: err}
 	}
-	results, err := store.Search(ctx, rt.Config.DBPath, cmd.Query, cmd.Limit)
+	results, err := store.SearchWithOptions(ctx, rt.Config.DBPath, cmd.Query, store.SearchOptions{
+		Limit:     cmd.Limit,
+		State:     cmd.State,
+		FinStatus: cmd.FinStatus,
+		Tag:       cmd.Tag,
+	})
 	if err != nil {
 		return err
 	}

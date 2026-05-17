@@ -175,6 +175,9 @@ func TestDescribeSearchPrintsSchema(t *testing.T) {
 	if !bytes.Contains(stdout.Bytes(), []byte(`"fields"`)) {
 		t.Fatalf("stdout = %q", stdout.String())
 	}
+	if !bytes.Contains(stdout.Bytes(), []byte(`"fin-status"`)) {
+		t.Fatalf("stdout = %q", stdout.String())
+	}
 }
 
 func TestSearchFieldsProjectsResults(t *testing.T) {
@@ -194,6 +197,37 @@ func TestSearchFieldsProjectsResults(t *testing.T) {
 	}
 	if bytes.Contains(stdout.Bytes(), []byte(`"snippet"`)) {
 		t.Fatalf("field mask leaked snippet: %q", stdout.String())
+	}
+}
+
+func TestSearchFiltersResults(t *testing.T) {
+	t.Setenv("FINCRAWL_HOME", t.TempDir())
+	var stdout bytes.Buffer
+	var stderr bytes.Buffer
+
+	if err := Run(context.Background(), []string{"sync", "--fixture", filepath.Join("..", "..", "testdata", "synthetic"), "--json"}, &stdout, &stderr); err != nil {
+		t.Fatal(err)
+	}
+	stdout.Reset()
+	if err := Run(context.Background(), []string{"search", "invoice", "--state", "open", "--tag", "billing", "--fields", "provider_id,state,tags", "--json"}, &stdout, &stderr); err != nil {
+		t.Fatal(err)
+	}
+	if !bytes.Contains(stdout.Bytes(), []byte(`"provider_id": "ic_syn_001"`)) {
+		t.Fatalf("stdout = %q", stdout.String())
+	}
+	stdout.Reset()
+	if err := Run(context.Background(), []string{"search", "invoice", "--state", "closed", "--fields", "provider_id", "--json"}, &stdout, &stderr); err != nil {
+		t.Fatal(err)
+	}
+	if strings.TrimSpace(stdout.String()) != "[]" {
+		t.Fatalf("stdout = %q, want empty results", stdout.String())
+	}
+	stdout.Reset()
+	if err := Run(context.Background(), []string{"search", "login", "--fin-status", "resolved", "--fields", "provider_id,fin_status", "--json"}, &stdout, &stderr); err != nil {
+		t.Fatal(err)
+	}
+	if !bytes.Contains(stdout.Bytes(), []byte(`"fin_status": "resolved"`)) {
+		t.Fatalf("stdout = %q", stdout.String())
 	}
 }
 
