@@ -50,6 +50,7 @@ environment or ignored local env file:
 ```bash
 fincrawl sync --entities
 fincrawl sync --updated-since 2h --limit 50
+fincrawl sync --updated-since 180d --updated-before 90d --limit 0
 fincrawl search "login code expired" --fields provider_id,subject,updated_at
 ```
 
@@ -98,6 +99,7 @@ Common flows:
 | Check local config | `fincrawl doctor --offline` |
 | Sync metadata | `fincrawl sync --entities` |
 | Sync a recent window | `fincrawl sync --updated-since 2h --limit 50` |
+| Backfill a bounded historical window | `fincrawl sync --updated-since 180d --updated-before 90d --limit 0` |
 | Hydrate one conversation | `fincrawl sync --conversation <id>` |
 | Search local archive | `fincrawl search "<query>" --fields provider_id,subject,updated_at` |
 | Filter search results | `fincrawl search "<query>" --state open --tag billing` |

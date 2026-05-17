@@ -195,7 +195,7 @@ func (s IntercomSyncer) SyncTail(ctx context.Context, dbPath string, opts TailSy
 		}
 		result.WorkspaceID = empty.WorkspaceID
 	}
-	state.HighWaterMark = state.ActiveWindowEnd
+	state.HighWaterMark = advanceHighWaterMark(state.HighWaterMark, state.ActiveWindowEnd)
 	state.ActiveWindowStart = ""
 	state.ActiveWindowEnd = ""
 	state.PageCursor = ""
@@ -251,6 +251,27 @@ func stateWindow(state store.SyncState) (time.Time, time.Time, error) {
 		return time.Time{}, time.Time{}, fmt.Errorf("parse active sync window end: %w", err)
 	}
 	return start, end, nil
+}
+
+func advanceHighWaterMark(current, candidate string) string {
+	if strings.TrimSpace(candidate) == "" {
+		return current
+	}
+	if strings.TrimSpace(current) == "" {
+		return candidate
+	}
+	currentTime, currentErr := time.Parse(time.RFC3339, current)
+	candidateTime, candidateErr := time.Parse(time.RFC3339, candidate)
+	if candidateErr != nil && currentErr == nil {
+		return current
+	}
+	if candidateErr != nil || currentErr != nil {
+		return candidate
+	}
+	if candidateTime.After(currentTime) {
+		return candidate
+	}
+	return current
 }
 
 func (s IntercomSyncer) searchConversations(ctx context.Context, updatedAfter, updatedBefore time.Time, cursor string) (intercom.ConversationSearchResult, error) {

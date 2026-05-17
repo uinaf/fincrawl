@@ -124,6 +124,7 @@ func describeCommands(command string) (cliSchema, error) {
 				Flags: []paramSchema{
 					{Name: "fixture", Type: "path", Help: "Import synthetic fixture directory."},
 					{Name: "updated-since", Type: "duration|timestamp", Help: "Sync provider conversations updated since a duration or timestamp."},
+					{Name: "updated-before", Type: "duration|timestamp", Help: "Sync provider conversations updated before a duration or timestamp. Requires --updated-since."},
 					{Name: "conversation", Type: "provider-id", Help: "Hydrate one provider conversation ID."},
 					{Name: "entities", Type: "bool", Help: "Hydrate provider admins, teams, and tags."},
 					{Name: "contacts", Type: "bool", Help: "Include a capped contact/user list when used with --entities."},
@@ -135,6 +136,7 @@ func describeCommands(command string) (cliSchema, error) {
 				Examples: []string{
 					"fincrawl sync --fixture testdata/synthetic",
 					"fincrawl sync --updated-since 2h --limit 50 --dry-run",
+					"fincrawl sync --updated-since 180d --updated-before 90d --limit 0 --dry-run",
 					"fincrawl sync --conversation <provider-conversation-id> --dry-run",
 				},
 				Notes: []string{

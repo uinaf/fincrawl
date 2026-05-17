@@ -66,6 +66,76 @@ func TestSyncRejectsNegativeUpdatedSinceLimit(t *testing.T) {
 	}
 }
 
+func TestSyncRejectsUpdatedBeforeWithoutUpdatedSince(t *testing.T) {
+	t.Setenv("FINCRAWL_HOME", t.TempDir())
+	var stdout bytes.Buffer
+	var stderr bytes.Buffer
+
+	err := Run(context.Background(), []string{
+		"sync",
+		"--updated-before", "90d",
+	}, &stdout, &stderr)
+	if !output.IsUsage(err) {
+		t.Fatalf("expected usage error, got %v", err)
+	}
+	if stdout.Len() != 0 {
+		t.Fatalf("stdout = %q", stdout.String())
+	}
+}
+
+func TestSyncRejectsInvertedUpdatedWindow(t *testing.T) {
+	t.Setenv("FINCRAWL_HOME", t.TempDir())
+	var stdout bytes.Buffer
+	var stderr bytes.Buffer
+
+	err := Run(context.Background(), []string{
+		"sync",
+		"--updated-since", "2026-05-17T12:00:00Z",
+		"--updated-before", "2026-05-17T11:00:00Z",
+	}, &stdout, &stderr)
+	if !output.IsUsage(err) {
+		t.Fatalf("expected usage error, got %v", err)
+	}
+	if stdout.Len() != 0 {
+		t.Fatalf("stdout = %q", stdout.String())
+	}
+}
+
+func TestSyncUpdatedSinceDryRunAcceptsBoundedWindow(t *testing.T) {
+	t.Setenv("FINCRAWL_HOME", t.TempDir())
+	var stdout bytes.Buffer
+	var stderr bytes.Buffer
+
+	err := Run(context.Background(), []string{
+		"sync",
+		"--updated-since", "2026-02-17T00:00:00Z",
+		"--updated-before", "2026-05-17T00:00:00Z",
+		"--dry-run",
+	}, &stdout, &stderr)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var plan struct {
+		Mode       string         `json:"mode"`
+		Parameters map[string]any `json:"parameters"`
+	}
+	if err := json.Unmarshal(stdout.Bytes(), &plan); err != nil {
+		t.Fatal(err)
+	}
+	if plan.Mode != "updated-since" {
+		t.Fatalf("mode = %q", plan.Mode)
+	}
+	if plan.Parameters["updated_after"] != "2026-02-17T00:00:00Z" {
+		t.Fatalf("updated_after = %#v", plan.Parameters["updated_after"])
+	}
+	if plan.Parameters["updated_before"] != "2026-05-17T00:00:00Z" {
+		t.Fatalf("updated_before = %#v", plan.Parameters["updated_before"])
+	}
+	if plan.Parameters["updated_before_input"] != "2026-05-17T00:00:00Z" {
+		t.Fatalf("updated_before_input = %#v", plan.Parameters["updated_before_input"])
+	}
+}
+
 func TestSyncRejectsNegativeResumeLimit(t *testing.T) {
 	t.Setenv("FINCRAWL_HOME", t.TempDir())
 	var stdout bytes.Buffer
@@ -479,7 +549,7 @@ func TestPublishImportEncryptedSnapshotRoundTrip(t *testing.T) {
 
 func TestParseSinceAcceptsDayDurations(t *testing.T) {
 	now := time.Date(2026, 5, 16, 12, 0, 0, 0, time.UTC)
-	got, err := parseSince("2d", now)
+	got, err := parseSince("2d", now, "updated-since")
 	if err != nil {
 		t.Fatal(err)
 	}
