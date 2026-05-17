@@ -23,6 +23,12 @@ tmp/
 *.tar.zst
 *.tar.zst.age
 *.log
+*.har
+logs/
+reports/
+screenshots/
+snapshots/
+transcripts/
 
 # Go build/test output
 bin/

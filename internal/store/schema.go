@@ -1,6 +1,6 @@
 package store
 
-const SchemaVersion = 1
+const SchemaVersion = 2
 
 const Schema = `
 create table if not exists workspaces (
@@ -43,10 +43,51 @@ create table if not exists tags (
 	name text not null unique
 );
 
+create table if not exists provider_tags (
+	id text primary key,
+	provider text not null,
+	provider_id text not null,
+	name text not null,
+	unique(provider, provider_id)
+);
+
 create table if not exists conversation_tags (
 	conversation_id text not null references conversations(id) on delete cascade,
 	tag_id text not null references tags(id) on delete cascade,
 	primary key(conversation_id, tag_id)
+);
+
+create table if not exists admins (
+	id text primary key,
+	provider text not null,
+	provider_id text not null,
+	name text not null,
+	email text not null default '',
+	team_ids text not null default '',
+	unique(provider, provider_id)
+);
+
+create table if not exists teams (
+	id text primary key,
+	provider text not null,
+	provider_id text not null,
+	name text not null,
+	unique(provider, provider_id)
+);
+
+create table if not exists contacts (
+	id text primary key,
+	provider text not null,
+	provider_id text not null,
+	name text not null,
+	email text not null default '',
+	unique(provider, provider_id)
+);
+
+create table if not exists conversation_participants (
+	conversation_id text not null references conversations(id) on delete cascade,
+	name text not null,
+	primary key(conversation_id, name)
 );
 
 create table if not exists raw_blobs (
@@ -76,6 +117,9 @@ create virtual table if not exists conversation_fts using fts5(
 	body,
 	tags,
 	participants,
-	assignee
+	assignee,
+	state,
+	rating,
+	fin_status
 );
 `

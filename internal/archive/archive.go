@@ -27,6 +27,9 @@ type Record struct {
 	ConversationID string         `json:"conversation_id,omitempty"`
 	Subject        string         `json:"subject,omitempty"`
 	State          string         `json:"state,omitempty"`
+	Name           string         `json:"name,omitempty"`
+	Email          string         `json:"email,omitempty"`
+	TeamIDs        []string       `json:"team_ids,omitempty"`
 	Assignee       string         `json:"assignee,omitempty"`
 	Rating         string         `json:"rating,omitempty"`
 	FinStatus      string         `json:"fin_status,omitempty"`
@@ -42,6 +45,53 @@ type Record struct {
 
 func FixtureRecords(fixture store.Fixture) []Record {
 	var records []Record
+	for _, admin := range fixture.Entities.Admins {
+		records = append(records, Record{
+			SchemaVersion: SchemaVersion,
+			RecordType:    "admin",
+			ID:            admin.ID,
+			Provider:      admin.Provider,
+			ProviderID:    admin.ProviderID,
+			Name:          admin.Name,
+			Email:         admin.Email,
+			TeamIDs:       sortedStrings(admin.TeamIDs),
+			Raw:           admin.Raw,
+		})
+	}
+	for _, team := range fixture.Entities.Teams {
+		records = append(records, Record{
+			SchemaVersion: SchemaVersion,
+			RecordType:    "team",
+			ID:            team.ID,
+			Provider:      team.Provider,
+			ProviderID:    team.ProviderID,
+			Name:          team.Name,
+			Raw:           team.Raw,
+		})
+	}
+	for _, tag := range fixture.Entities.Tags {
+		records = append(records, Record{
+			SchemaVersion: SchemaVersion,
+			RecordType:    "provider_tag",
+			ID:            tag.ID,
+			Provider:      tag.Provider,
+			ProviderID:    tag.ProviderID,
+			Name:          tag.Name,
+			Raw:           tag.Raw,
+		})
+	}
+	for _, contact := range fixture.Entities.Contacts {
+		records = append(records, Record{
+			SchemaVersion: SchemaVersion,
+			RecordType:    "contact",
+			ID:            contact.ID,
+			Provider:      contact.Provider,
+			ProviderID:    contact.ProviderID,
+			Name:          contact.Name,
+			Email:         contact.Email,
+			Raw:           contact.Raw,
+		})
+	}
 	conversations := append([]store.Conversation(nil), fixture.Conversations...)
 	sort.Slice(conversations, func(i, j int) bool {
 		if conversations[i].UpdatedAt == conversations[j].UpdatedAt {

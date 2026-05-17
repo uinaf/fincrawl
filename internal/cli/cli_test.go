@@ -79,6 +79,34 @@ func TestSyncRejectsNegativeResumeLimit(t *testing.T) {
 	}
 }
 
+func TestSyncRejectsContactsWithoutEntities(t *testing.T) {
+	t.Setenv("FINCRAWL_HOME", t.TempDir())
+	var stdout bytes.Buffer
+	var stderr bytes.Buffer
+
+	err := Run(context.Background(), []string{"sync", "--contacts"}, &stdout, &stderr)
+	if !output.IsUsage(err) {
+		t.Fatalf("expected usage error, got %v", err)
+	}
+	if stdout.Len() != 0 {
+		t.Fatalf("stdout = %q", stdout.String())
+	}
+}
+
+func TestSyncEntitiesRequiresLiveCredential(t *testing.T) {
+	t.Setenv("FINCRAWL_HOME", t.TempDir())
+	var stdout bytes.Buffer
+	var stderr bytes.Buffer
+
+	err := Run(context.Background(), []string{"sync", "--entities", "--json"}, &stdout, &stderr)
+	if err == nil || !strings.Contains(err.Error(), config.EnvIntercomCred) {
+		t.Fatalf("expected missing credential error, got %v", err)
+	}
+	if stdout.Len() != 0 {
+		t.Fatalf("stdout = %q", stdout.String())
+	}
+}
+
 func TestSyncResumeReachesLiveDispatch(t *testing.T) {
 	t.Setenv("FINCRAWL_HOME", t.TempDir())
 	t.Setenv(config.EnvIntercomCred, "fake-token")

@@ -24,7 +24,7 @@ type SyncState struct {
 }
 
 func LoadSyncState(ctx context.Context, dbPath, id string) (SyncState, bool, error) {
-	st, err := ckstore.Open(ctx, ckstore.Options{Path: dbPath, Schema: Schema, SchemaVersion: SchemaVersion})
+	st, err := openStore(ctx, dbPath)
 	if err != nil {
 		return SyncState{}, false, err
 	}
@@ -104,7 +104,7 @@ func SaveSyncState(ctx context.Context, dbPath string, state SyncState) error {
 		state.CursorKind = "updated_at"
 	}
 	state.UpdatedAt = time.Now().UTC().Format(time.RFC3339)
-	st, err := ckstore.Open(ctx, ckstore.Options{Path: dbPath, Schema: Schema, SchemaVersion: SchemaVersion})
+	st, err := openStore(ctx, dbPath)
 	if err != nil {
 		return err
 	}

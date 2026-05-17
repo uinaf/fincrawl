@@ -8,6 +8,7 @@ import (
 	"io"
 	"net/http"
 	"net/url"
+	"sort"
 	"strconv"
 	"strings"
 	"time"
@@ -41,6 +42,14 @@ type Conversation struct {
 	Raw               json.RawMessage `json:"-"`
 }
 
+type Entity struct {
+	ID      string
+	Name    string
+	Email   string
+	TeamIDs []string
+	Raw     map[string]any
+}
+
 type RateLimitError struct {
 	StatusCode int
 	RetryAfter time.Duration
@@ -51,6 +60,20 @@ func (e RateLimitError) Error() string {
 		return fmt.Sprintf("intercom rate limited: retry after %s", e.RetryAfter)
 	}
 	return "intercom rate limited"
+}
+
+type HTTPStatusError struct {
+	Method     string
+	Path       string
+	StatusCode int
+	Body       string
+}
+
+func (e HTTPStatusError) Error() string {
+	if e.Body == "" {
+		return fmt.Sprintf("intercom %s %s failed: status %d", e.Method, e.Path, e.StatusCode)
+	}
+	return fmt.Sprintf("intercom %s %s failed: status %d: %s", e.Method, e.Path, e.StatusCode, e.Body)
 }
 
 func (c Client) SearchConversations(ctx context.Context, updatedAfter, updatedBefore time.Time, startingAfter string) (ConversationSearchResult, error) {
@@ -81,6 +104,66 @@ func (c Client) RetrieveConversation(ctx context.Context, id string) (Conversati
 	}
 	conversation.Raw = raw
 	return conversation, nil
+}
+
+func (c Client) ListAdmins(ctx context.Context) ([]Entity, error) {
+	return c.listEntities(ctx, "/admins", nil, "admins", "data")
+}
+
+func (c Client) ListTeams(ctx context.Context) ([]Entity, error) {
+	return c.listEntities(ctx, "/teams", nil, "teams", "data")
+}
+
+func (c Client) ListTags(ctx context.Context) ([]Entity, error) {
+	return c.listEntities(ctx, "/tags", nil, "tags", "data")
+}
+
+func (c Client) ListContacts(ctx context.Context, limit int) ([]Entity, error) {
+	if limit < 0 {
+		return nil, fmt.Errorf("contact limit must be >= 0")
+	}
+	if limit == 0 {
+		limit = 50
+	}
+	var entities []Entity
+	var cursor string
+	for len(entities) < limit {
+		remaining := limit - len(entities)
+		perPage := remaining
+		if perPage > 150 {
+			perPage = 150
+		}
+		query := url.Values{"per_page": []string{strconv.Itoa(perPage)}}
+		if cursor != "" {
+			query.Set("starting_after", cursor)
+		}
+		var raw json.RawMessage
+		if err := c.doJSON(ctx, http.MethodGet, "/contacts", query, nil, &raw); err != nil {
+			return nil, err
+		}
+		pageEntities, next, err := decodeEntitiesPage(raw, "data", "contacts")
+		if err != nil {
+			return nil, err
+		}
+		entities = append(entities, pageEntities...)
+		if next == "" || len(pageEntities) == 0 {
+			break
+		}
+		cursor = next
+	}
+	if len(entities) > limit {
+		entities = entities[:limit]
+	}
+	return entities, nil
+}
+
+func (c Client) listEntities(ctx context.Context, path string, query url.Values, keys ...string) ([]Entity, error) {
+	var raw json.RawMessage
+	if err := c.doJSON(ctx, http.MethodGet, path, query, nil, &raw); err != nil {
+		return nil, err
+	}
+	entities, _, err := decodeEntitiesPage(raw, keys...)
+	return entities, err
 }
 
 func (c Client) doJSON(ctx context.Context, method, path string, query url.Values, requestBody any, responseBody any) error {
@@ -131,12 +214,128 @@ func (c Client) doJSON(ctx context.Context, method, path string, query url.Value
 	}
 	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
 		body, _ := io.ReadAll(io.LimitReader(resp.Body, 4096))
-		return fmt.Errorf("intercom %s %s failed: status %d: %s", method, path, resp.StatusCode, strings.TrimSpace(string(body)))
+		return HTTPStatusError{Method: method, Path: path, StatusCode: resp.StatusCode, Body: strings.TrimSpace(string(body))}
 	}
 	if err := c.maybeThrottle(ctx, resp.Header); err != nil {
 		return err
 	}
 	return json.NewDecoder(resp.Body).Decode(responseBody)
+}
+
+func decodeEntitiesPage(raw json.RawMessage, keys ...string) ([]Entity, string, error) {
+	items, err := rawItems(raw, keys...)
+	if err != nil {
+		return nil, "", err
+	}
+	entities := make([]Entity, 0, len(items))
+	for _, item := range items {
+		var value map[string]any
+		if err := json.Unmarshal(item, &value); err != nil {
+			return nil, "", fmt.Errorf("decode entity: %w", err)
+		}
+		id := stringValue(value, "id")
+		if id == "" {
+			continue
+		}
+		entities = append(entities, Entity{
+			ID:      id,
+			Name:    firstNonEmpty(stringValue(value, "name"), stringValue(value, "email"), id),
+			Email:   stringValue(value, "email"),
+			TeamIDs: entityTeamIDs(value),
+			Raw:     value,
+		})
+	}
+	return entities, nextCursor(raw), nil
+}
+
+func rawItems(raw json.RawMessage, keys ...string) ([]json.RawMessage, error) {
+	var array []json.RawMessage
+	if err := json.Unmarshal(raw, &array); err == nil {
+		return array, nil
+	}
+	var root map[string]json.RawMessage
+	if err := json.Unmarshal(raw, &root); err != nil {
+		return nil, fmt.Errorf("decode entity page: %w", err)
+	}
+	for _, key := range keys {
+		if body, ok := root[key]; ok {
+			var values []json.RawMessage
+			if err := json.Unmarshal(body, &values); err != nil {
+				return nil, fmt.Errorf("decode %s list: %w", key, err)
+			}
+			return values, nil
+		}
+	}
+	return nil, fmt.Errorf("entity list missing expected keys %s", strings.Join(keys, ", "))
+}
+
+func nextCursor(raw json.RawMessage) string {
+	var root struct {
+		Pages struct {
+			Next struct {
+				StartingAfter string `json:"starting_after"`
+			} `json:"next"`
+		} `json:"pages"`
+	}
+	if err := json.Unmarshal(raw, &root); err != nil {
+		return ""
+	}
+	return strings.TrimSpace(root.Pages.Next.StartingAfter)
+}
+
+func entityTeamIDs(value map[string]any) []string {
+	seen := map[string]bool{}
+	add := func(id string) {
+		id = strings.TrimSpace(id)
+		if id != "" {
+			seen[id] = true
+		}
+	}
+	for _, value := range arrayAny(value["team_ids"]) {
+		add(fmt.Sprint(value))
+	}
+	if teams, ok := value["teams"].(map[string]any); ok {
+		for _, value := range arrayAny(teams["teams"]) {
+			if team, ok := value.(map[string]any); ok {
+				add(stringValue(team, "id"))
+			}
+		}
+	}
+	ids := make([]string, 0, len(seen))
+	for id := range seen {
+		ids = append(ids, id)
+	}
+	sort.Strings(ids)
+	return ids
+}
+
+func arrayAny(value any) []any {
+	array, _ := value.([]any)
+	return array
+}
+
+func stringValue(raw map[string]any, key string) string {
+	switch value := raw[key].(type) {
+	case string:
+		return strings.TrimSpace(value)
+	case float64:
+		if value == float64(int64(value)) {
+			return fmt.Sprintf("%d", int64(value))
+		}
+		return fmt.Sprint(value)
+	default:
+		return ""
+	}
+}
+
+func firstNonEmpty(values ...string) string {
+	for _, value := range values {
+		value = strings.TrimSpace(value)
+		if value != "" {
+			return value
+		}
+	}
+	return ""
 }
 
 func (c Client) maybeThrottle(ctx context.Context, header http.Header) error {

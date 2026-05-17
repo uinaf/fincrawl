@@ -19,6 +19,8 @@ encrypted snapshots, and transcript-derived examples do not belong in this repo.
 - [Tenant data boundary](docs/tenant-data-boundary.md) is the reusable policy
   for credentials, real artifacts, manual tenant testing, and committed
   fixtures.
+- [Local live smoke](docs/runbooks/local-live-smoke.md) shows how to exercise
+  read-only Intercom calls without committing tenant state.
 
 ## Development Boundary
 
@@ -28,7 +30,8 @@ repository, even when encrypted.
 
 ## Current Offline Slice
 
-The bootstrapped CLI runs without live Intercom credentials:
+The bootstrapped CLI runs without live Intercom credentials and stores only
+synthetic fixture data during deterministic checks:
 
 ```bash
 ./scripts/smoke
@@ -40,49 +43,45 @@ ignored repo `tmp/` directory. The archive command above uses a synthetic public
 age recipient for smoke tests only. The CLI may read ignored `.env.local` for
 `FINCRAWL_AGE_RECIPIENT`; it does not shell out to 1Password.
 
-## Live Intercom Smoke
+## Local Live Smoke
 
 Live sync is intentionally manual and local. Use a read-only Intercom app token
 from ignored `.env.local`; do not write tenant config or generated artifacts
-inside this repository.
+inside this repository. The safe default smoke hydrates admins, teams, and tags
+only; contact listing and conversation hydration are explicit opt-ins.
 
 ```bash
 cp .env.local.example .env.local.tpl
 op inject -i .env.local.tpl -o .env.local
 chmod 600 .env.local
-go run ./cmd/fincrawl doctor --offline --json
-FINCRAWL_HOME=/tmp/fincrawl-live-smoke go run ./cmd/fincrawl sync --conversation <synthetic-or-approved-test-id> --json
-FINCRAWL_HOME=/tmp/fincrawl-live-smoke go run ./cmd/fincrawl search "<query>" --json
+./scripts/local-live-smoke
 ```
 
-For a bounded recent crawl, prefer a short window and explicit limit:
+For contact scope proof, keep the list capped:
 
 ```bash
-FINCRAWL_HOME=/tmp/fincrawl-live-smoke go run ./cmd/fincrawl sync --updated-since 2h --limit 5 --json
+FINCRAWL_LIVE_CONTACT_LIMIT=10 ./scripts/local-live-smoke
 ```
 
-When a limited or interrupted updated-since run leaves an active window in local
-SQLite, fresh updated-since runs are refused until the active window is
-continued with:
+For bounded conversation proof, prefer a short window and explicit limit:
 
 ```bash
-FINCRAWL_HOME=/tmp/fincrawl-live-smoke go run ./cmd/fincrawl sync --resume --json
+FINCRAWL_LIVE_UPDATED_SINCE=2h FINCRAWL_LIVE_CONVERSATION_LIMIT=5 ./scripts/local-live-smoke
 ```
 
-`status --json` reports sync-state timestamps and resume availability. It only
-shows booleans for provider markers and page cursors; it does not print
-provider conversation IDs or opaque cursors.
+See [Local live smoke](docs/runbooks/local-live-smoke.md) for the full local
+workflow and cleanup notes.
 
-## Next Implementation Slice
+## Current Local Slice
 
-The next implementation slice is entity hydration and useful local search:
+The current local slice focuses on entity hydration and useful local search:
 
-- Hydrate and normalize Intercom admins, teams, tags, and contacts/users where
-  the tenant-authorized token exposes them.
+- Hydrate and normalize Intercom admins, teams, tags, and capped contacts/users
+  where the tenant-authorized token exposes them.
 - Enrich SQLite and FTS with participant, assignee, tag, rating, state, and
   Fin-like metadata while keeping provider-specific raw JSON for replay.
-- Expand live smoke checks for those read-only scopes without writing tenant
-  config, logs, snapshots, or generated artifacts into this repo.
+- Provide local smoke checks for read-only scopes without writing tenant config,
+  logs, snapshots, or generated artifacts into this repo.
 - Prepare encrypted publish/subscribe after local search has enough entity
   context to be useful on another machine.
 

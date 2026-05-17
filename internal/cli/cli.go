@@ -168,8 +168,10 @@ type syncCmd struct {
 	Fixture      string `help:"Import synthetic fixture directory."`
 	UpdatedSince string `name:"updated-since" help:"Sync provider conversations updated since a duration or timestamp."`
 	Conversation string `help:"Hydrate one provider conversation ID."`
+	Entities     bool   `help:"Hydrate provider admins, teams, and tags."`
+	Contacts     bool   `help:"Include a capped contact/user list when used with --entities."`
 	Resume       bool   `help:"Resume an interrupted Intercom updated-since sync window."`
-	Limit        int    `help:"Maximum provider conversations to hydrate for --updated-since. Use 0 for no limit." default:"50"`
+	Limit        int    `help:"Maximum provider conversations for --updated-since, or contacts for --entities --contacts. Use 0 for no conversation limit." default:"50"`
 	JSON         bool   `help:"Print JSON output."`
 }
 
@@ -200,7 +202,7 @@ func (cmd syncCmd) Run(ctx commandContext) error {
 		}
 		return writeMaybeJSON(ctx.stdout, cmd.JSON, result)
 	}
-	if cmd.UpdatedSince != "" || cmd.Conversation != "" || cmd.Resume {
+	if cmd.UpdatedSince != "" || cmd.Conversation != "" || cmd.Entities || cmd.Resume {
 		if config.IntercomToken() == "" {
 			return fmt.Errorf("missing %s for live Intercom sync", config.EnvIntercomCred)
 		}
@@ -232,6 +234,8 @@ func (cmd syncCmd) Run(ctx commandContext) error {
 		var result store.SyncResult
 		if cmd.Conversation != "" {
 			result, err = s.SyncConversation(ctx, rt.Config.DBPath, cmd.Conversation)
+		} else if cmd.Entities {
+			result, err = s.SyncEntities(ctx, rt.Config.DBPath, syncer.EntitySyncOptions{IncludeContacts: cmd.Contacts, ContactLimit: cmd.Limit})
 		} else if cmd.Resume {
 			result, err = s.ResumeTail(ctx, rt.Config.DBPath, cmd.Limit)
 		} else {
@@ -251,18 +255,21 @@ func (cmd syncCmd) Run(ctx commandContext) error {
 
 func (cmd syncCmd) validateMode() error {
 	modes := 0
-	for _, enabled := range []bool{cmd.Fixture != "", cmd.UpdatedSince != "", cmd.Conversation != "", cmd.Resume} {
+	for _, enabled := range []bool{cmd.Fixture != "", cmd.UpdatedSince != "", cmd.Conversation != "", cmd.Entities, cmd.Resume} {
 		if enabled {
 			modes++
 		}
 	}
 	if modes == 0 {
-		return output.UsageError{Err: fmt.Errorf("sync requires --fixture, --updated-since, --conversation, or --resume")}
+		return output.UsageError{Err: fmt.Errorf("sync requires --fixture, --updated-since, --conversation, --entities, or --resume")}
 	}
 	if modes > 1 {
-		return output.UsageError{Err: fmt.Errorf("sync accepts exactly one of --fixture, --updated-since, --conversation, or --resume")}
+		return output.UsageError{Err: fmt.Errorf("sync accepts exactly one of --fixture, --updated-since, --conversation, --entities, or --resume")}
 	}
-	if (cmd.UpdatedSince != "" || cmd.Resume) && cmd.Limit < 0 {
+	if cmd.Contacts && !cmd.Entities {
+		return output.UsageError{Err: fmt.Errorf("--contacts requires --entities")}
+	}
+	if (cmd.UpdatedSince != "" || cmd.Resume || cmd.Entities) && cmd.Limit < 0 {
 		return output.UsageError{Err: fmt.Errorf("--limit must be >= 0")}
 	}
 	return nil

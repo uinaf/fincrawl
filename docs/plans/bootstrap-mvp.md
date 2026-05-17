@@ -11,25 +11,25 @@ guardrails. Git-backed publish/subscribe is designed but not implemented in this
 slice.
 
 The current bootstrapped repo has the first local archive path, live
-conversation hydration, resumable tail sync state, privacy-safe `status --json`,
-guardrails, and release automation. The next slice should avoid broadening the
-distribution surface until local search has richer entity context.
+conversation hydration, read-only entity hydration, resumable tail sync state,
+privacy-safe `status --json`, guardrails, and release automation. The next
+slice should avoid broadening the distribution surface until local search has
+richer entity context.
 
 ## Next Slice
 
-Prioritize Intercom entity hydration and search quality:
+Prioritize the remaining local usability work around Intercom entity hydration
+and search quality:
 
-1. Add read-only Intercom client methods for admins, teams, tags, and minimal
-   contacts/users where the API scopes are available.
-2. Add migration-friendly SQLite tables and upserts for those entities, plus
-   join tables needed for conversations and tags.
-3. Normalize entity references during exact conversation hydration and tail sync
-   without requiring every optional scope to be present.
-4. Enrich FTS and `search --json` output with participant names, assignee/admin
-   names, tags, state, rating, and Fin-like metadata from synthetic fixtures.
-5. Expand live smoke commands to prove the read-only scope set locally, while
+1. Keep `sync --entities` as the explicit local command for admins, teams, tags,
+   and capped contacts/users where API scopes are available.
+2. Normalize more conversation entity references during exact hydration and tail
+   sync without requiring every optional scope to be present.
+3. Enrich search ranking and result display from the stored entity tables after
+   enough synthetic edge cases exist.
+4. Expand live smoke commands to prove the read-only scope set locally, while
    keeping all tenant output in ignored/private runtime state.
-6. Strengthen guardrails around generated examples and docs before adding
+5. Strengthen guardrails around generated examples and docs before adding
    publish/subscribe import paths.
 
 Encrypted publish/subscribe follows this slice. Build it only after local search
@@ -53,6 +53,8 @@ fincrawl sync --fixture testdata/synthetic
 fincrawl sync --updated-since 2h
 fincrawl sync --resume
 fincrawl sync --conversation <id>
+fincrawl sync --entities
+fincrawl sync --entities --contacts --limit 10
 fincrawl search "billing refund" --json
 fincrawl archive --fixture testdata/synthetic --recipient <age-recipient> --out <tmp>.jsonl.zst.age
 fincrawl guard
@@ -100,6 +102,13 @@ Implement these subsystems:
   provider-specific behavior out of crawlkit. Make the Intercom API version
   configurable with a pinned current default chosen at implementation time.
   Implement only supported REST API/export flows.
+- Intercom client dependency stance: the legacy official Go SDK is not a good
+  default for the current bearer-token, versioned REST API shape. Keep the
+  small internal client while the endpoint surface is tiny, and evaluate
+  OpenAPI-generated Go code from Intercom's official OpenAPI repository before
+  adding many more endpoints. Third-party Go SDKs may be useful references, but
+  should not become core dependencies until they are reviewed for API version
+  coverage, pagination, retry behavior, raw JSON access, and maintenance risk.
 - Intercom entities: list and store admins, teams, tags, and minimal contacts or
   users when scopes allow. Treat unavailable optional scopes as degraded
   capability with clear diagnostics, not as permission pressure to grant broad
@@ -172,11 +181,11 @@ Fresh `sync --updated-since` runs are refused while active state exists.
 same normalized rows and raw blobs as incremental sync. It is the exact-refresh
 path for cache misses and debugging.
 
-`sync --entities` or an equivalent internal step should hydrate read-only
-supporting entities before or alongside conversation sync. The first
-implementation may keep this hidden behind existing sync commands if that keeps
-the CLI simpler; the important contract is that entity hydration is repeatable,
-optional by scope, and backed by synthetic tests.
+`sync --entities` hydrates read-only supporting entities before or alongside
+conversation sync. Admins, teams, and tags are included by default; contacts are
+explicit and capped with `--contacts --limit N`. The command tolerates
+unavailable optional scopes by returning warnings and importing the entity types
+that are available.
 
 `archive` writes encrypted artifacts only. It must not create plaintext JSONL or
 plaintext compressed files on disk, including temporary files.
@@ -291,12 +300,12 @@ go run ./cmd/fincrawl guard
 - Docs link to [Tenant data boundary](../tenant-data-boundary.md) and the
   [Intercom archive MVP](../specs/intercom-archive-mvp.md).
 
-## Next-Slice Acceptance Criteria
+## Current Local-Slice Acceptance Criteria
 
 - Synthetic entity sync writes admins, teams, tags, and minimal contacts/users
   into SQLite.
-- Conversation sync links synthetic conversations to those entities where
-  present and behaves clearly when optional entity scopes are unavailable.
+- Conversation sync stores searchable participant rows and behaves clearly when
+  optional entity scopes are unavailable.
 - `search --json` returns richer local results from SQLite without live
   Intercom access.
 - `status --json` remains privacy-safe and read-only.

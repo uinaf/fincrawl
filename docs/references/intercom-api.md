@@ -22,10 +22,29 @@ text, screenshots, logs, or generated artifacts here.
 - [Data export](https://developers.intercom.com/docs/references/rest-api/api.intercom.io/Data%20Export/)
 - [Cloud conversation export](https://www.intercom.com/help/en/articles/7029721-export-conversations-data-to-amazon-s3)
 - [Official OpenAPI repository](https://github.com/intercom/Intercom-OpenAPI)
+- [Legacy Go SDK package](https://pkg.go.dev/github.com/Intercom/intercom-go)
 
 The public docs expose a version picker. Implementation should pin a current
 Intercom API version and make that version configurable instead of baking a
 stale version into code.
+
+## Go Client Stance
+
+Use the small internal Intercom client for the bootstrap endpoint surface. The
+legacy official Go SDK still documents the older app ID/API key flow and old API
+references, so it is not the right default dependency for current bearer-token,
+versioned REST calls.
+
+Before adding broad endpoint coverage, evaluate generated Go code from
+Intercom's official OpenAPI repository. Any generated or third-party client must
+preserve these `fincrawl` requirements:
+
+- configurable API version and base URL
+- bearer-token auth without logging credentials
+- 429 retry and low-budget throttling hooks
+- access to raw provider JSON for replay and migrations
+- cursor pagination control
+- typed status errors for optional-scope warnings
 
 ## Compliance Boundary
 

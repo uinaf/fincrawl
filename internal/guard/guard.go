@@ -217,6 +217,9 @@ func forbiddenPath(path string) string {
 	if strings.HasPrefix(base, ".env.") {
 		return "local env files must not be committed"
 	}
+	if isGeneratedArtifactPath(path) {
+		return "generated tenant artifact path"
+	}
 	switch {
 	case strings.HasSuffix(path, ".jsonl.zst.age"), strings.HasSuffix(path, ".tar.zst.age"):
 		return "generated encrypted archive artifact"
@@ -233,8 +236,20 @@ func forbiddenPath(path string) string {
 		return "local SQLite archive artifact"
 	case strings.HasSuffix(path, ".log"):
 		return "local log artifact"
+	case strings.HasSuffix(path, ".har"):
+		return "browser/network capture artifact"
 	}
 	return ""
+}
+
+func isGeneratedArtifactPath(path string) bool {
+	for _, part := range strings.Split(path, "/") {
+		switch part {
+		case "snapshots", "reports", "screenshots", "logs", "transcripts":
+			return true
+		}
+	}
+	return false
 }
 
 func forbiddenContent(path string, body []byte) []string {

@@ -86,6 +86,10 @@ func Status(ctx context.Context, rt config.Runtime) StatusReport {
 	status.Counts = []ckcontrol.Count{
 		ckcontrol.NewCount("conversations", "Conversations", counts.Conversations),
 		ckcontrol.NewCount("conversation_parts", "Conversation parts", counts.ConversationParts),
+		ckcontrol.NewCount("admins", "Admins", counts.Admins),
+		ckcontrol.NewCount("teams", "Teams", counts.Teams),
+		ckcontrol.NewCount("tags", "Provider tags", counts.Tags),
+		ckcontrol.NewCount("contacts", "Contacts", counts.Contacts),
 		ckcontrol.NewCount("raw_blobs", "Raw blobs", counts.RawBlobs),
 	}
 	status.Databases = []ckcontrol.Database{

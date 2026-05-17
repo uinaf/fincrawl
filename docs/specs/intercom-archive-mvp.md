@@ -62,10 +62,10 @@ The MVP stores:
 - FTS over subject, body, parts, tags, assignees, and normalized participant
   names.
 
-The next implementation slice should make this scope useful before adding more
-distribution machinery: hydrate provider entities, normalize them into SQLite,
-and expose them through local search/status output without leaking opaque
-provider cursors or tenant identifiers.
+The current local implementation slice makes this scope useful before adding
+more distribution machinery: hydrate provider entities, normalize them into
+SQLite, and expose them through local search/status output without leaking
+opaque provider cursors or tenant identifiers.
 
 The MVP defers:
 

@@ -10,6 +10,7 @@ import (
 	"testing"
 	"time"
 
+	ckstore "github.com/openclaw/crawlkit/store"
 	"github.com/uinaf/fincrawl/internal/intercom"
 	"github.com/uinaf/fincrawl/internal/store"
 )
@@ -97,6 +98,160 @@ func TestSyncConversationHydratesAndIndexesConversation(t *testing.T) {
 	}
 	if len(results) != 1 || results[0].ProviderID != "conv_fake_1" {
 		t.Fatalf("search results = %#v", results)
+	}
+}
+
+func TestSyncEntitiesHydratesReadOnlyWorkspaceMetadata(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		switch r.URL.Path {
+		case "/admins":
+			w.Write([]byte(`{"admins":[{"id":"admin_syn_1","name":"Riley Example","email":"riley@example.invalid","team_ids":["team_syn_1"]}]}`))
+		case "/teams":
+			w.Write([]byte(`{"teams":[{"id":"team_syn_1","name":"Synthetic Support"}]}`))
+		case "/tags":
+			w.Write([]byte(`{"tags":[{"id":"tag_syn_1","name":"billing"}]}`))
+		case "/contacts":
+			if r.URL.Query().Get("per_page") != "2" {
+				t.Fatalf("per_page = %q", r.URL.Query().Get("per_page"))
+			}
+			w.Write([]byte(`{"data":[{"id":"contact_syn_1","name":"Casey Example"},{"id":"contact_syn_2","name":"Jordan Example"}],"pages":{"next":{}}}`))
+		default:
+			t.Fatalf("unexpected path = %s", r.URL.Path)
+		}
+	}))
+	defer server.Close()
+	dbPath := filepath.Join(t.TempDir(), "fincrawl.db")
+	s := IntercomSyncer{
+		Client: intercom.Client{BaseURL: server.URL, Token: "fake-token", HTTPClient: server.Client()},
+		Now:    func() time.Time { return time.Unix(1770000000, 0) },
+	}
+	result, err := s.SyncEntities(context.Background(), dbPath, EntitySyncOptions{IncludeContacts: true, ContactLimit: 2})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if result.Admins != 1 || result.Teams != 1 || result.Tags != 1 || result.Contacts != 2 {
+		t.Fatalf("result = %#v", result)
+	}
+	st, err := ckstore.OpenReadOnly(context.Background(), dbPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer st.Close()
+	var contacts int
+	if err := st.DB().QueryRowContext(context.Background(), `select count(*) from contacts`).Scan(&contacts); err != nil {
+		t.Fatal(err)
+	}
+	if contacts != 2 {
+		t.Fatalf("contacts = %d, want 2", contacts)
+	}
+}
+
+func TestSyncEntitiesTreatsDeniedOptionalScopesAsWarnings(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		switch r.URL.Path {
+		case "/admins":
+			http.Error(w, "missing scope", http.StatusForbidden)
+		case "/teams":
+			w.Write([]byte(`{"teams":[{"id":"team_syn_1","name":"Synthetic Support"}]}`))
+		case "/tags":
+			w.Write([]byte(`{"tags":[{"id":"tag_syn_1","name":"billing"}]}`))
+		default:
+			t.Fatalf("unexpected path = %s", r.URL.Path)
+		}
+	}))
+	defer server.Close()
+	dbPath := filepath.Join(t.TempDir(), "fincrawl.db")
+	s := IntercomSyncer{
+		Client: intercom.Client{BaseURL: server.URL, Token: "fake-token", HTTPClient: server.Client()},
+		Now:    func() time.Time { return time.Unix(1770000000, 0) },
+	}
+	result, err := s.SyncEntities(context.Background(), dbPath, EntitySyncOptions{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if result.Admins != 0 || result.Teams != 1 || result.Tags != 1 {
+		t.Fatalf("result = %#v", result)
+	}
+	if len(result.Warnings) != 1 || !strings.Contains(result.Warnings[0], "admins unavailable") {
+		t.Fatalf("warnings = %#v", result.Warnings)
+	}
+}
+
+func TestSyncEntitiesTreatsUnauthorizedOptionalScopeAsWarningWhenOthersWork(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		switch r.URL.Path {
+		case "/admins":
+			http.Error(w, "missing scope", http.StatusUnauthorized)
+		case "/teams":
+			w.Write([]byte(`{"teams":[{"id":"team_syn_1","name":"Synthetic Support"}]}`))
+		case "/tags":
+			w.Write([]byte(`{"tags":[{"id":"tag_syn_1","name":"billing"}]}`))
+		default:
+			t.Fatalf("unexpected path = %s", r.URL.Path)
+		}
+	}))
+	defer server.Close()
+	dbPath := filepath.Join(t.TempDir(), "fincrawl.db")
+	s := IntercomSyncer{
+		Client: intercom.Client{BaseURL: server.URL, Token: "fake-token", HTTPClient: server.Client()},
+		Now:    func() time.Time { return time.Unix(1770000000, 0) },
+	}
+	result, err := s.SyncEntities(context.Background(), dbPath, EntitySyncOptions{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if result.Teams != 1 || result.Tags != 1 || len(result.Warnings) != 1 {
+		t.Fatalf("result = %#v", result)
+	}
+}
+
+func TestSyncEntitiesAllowsSuccessfulEmptyScopesWithWarnings(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		switch r.URL.Path {
+		case "/admins":
+			http.Error(w, "missing scope", http.StatusForbidden)
+		case "/teams":
+			w.Write([]byte(`{"teams":[]}`))
+		case "/tags":
+			w.Write([]byte(`{"tags":[]}`))
+		default:
+			t.Fatalf("unexpected path = %s", r.URL.Path)
+		}
+	}))
+	defer server.Close()
+	dbPath := filepath.Join(t.TempDir(), "fincrawl.db")
+	s := IntercomSyncer{
+		Client: intercom.Client{BaseURL: server.URL, Token: "fake-token", HTTPClient: server.Client()},
+		Now:    func() time.Time { return time.Unix(1770000000, 0) },
+	}
+	result, err := s.SyncEntities(context.Background(), dbPath, EntitySyncOptions{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if result.Admins != 0 || result.Teams != 0 || result.Tags != 0 {
+		t.Fatalf("result = %#v", result)
+	}
+	if len(result.Warnings) != 1 || !strings.Contains(result.Warnings[0], "admins unavailable") {
+		t.Fatalf("warnings = %#v", result.Warnings)
+	}
+}
+
+func TestSyncEntitiesFailsInvalidCredentials(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		http.Error(w, "invalid token", http.StatusUnauthorized)
+	}))
+	defer server.Close()
+	dbPath := filepath.Join(t.TempDir(), "fincrawl.db")
+	s := IntercomSyncer{
+		Client: intercom.Client{BaseURL: server.URL, Token: "fake-token", HTTPClient: server.Client()},
+	}
+	_, err := s.SyncEntities(context.Background(), dbPath, EntitySyncOptions{})
+	if err == nil || !strings.Contains(err.Error(), "no Intercom entity scopes available") {
+		t.Fatalf("expected no usable entity scopes error, got %v", err)
 	}
 }
 

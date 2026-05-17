@@ -86,6 +86,83 @@ func TestRetrieveConversationUsesPlaintextDisplay(t *testing.T) {
 	}
 }
 
+func TestListEntitiesDecodesWorkspaceMetadata(t *testing.T) {
+	var sawPaths []string
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		sawPaths = append(sawPaths, r.URL.Path)
+		w.Header().Set("Content-Type", "application/json")
+		switch r.URL.Path {
+		case "/admins":
+			w.Write([]byte(`{"admins":[{"id":"admin_syn_1","name":"Riley Example","email":"riley@example.invalid","team_ids":["team_syn_1"]}]}`))
+		case "/teams":
+			w.Write([]byte(`{"teams":[{"id":"team_syn_1","name":"Synthetic Support"}]}`))
+		case "/tags":
+			w.Write([]byte(`{"tags":[{"id":"tag_syn_1","name":"billing"}]}`))
+		default:
+			t.Fatalf("unexpected path = %s", r.URL.Path)
+		}
+	}))
+	defer server.Close()
+	client := Client{BaseURL: server.URL, HTTPClient: server.Client()}
+	admins, err := client.ListAdmins(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	teams, err := client.ListTeams(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	tags, err := client.ListTags(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(admins) != 1 || admins[0].ID != "admin_syn_1" || admins[0].TeamIDs[0] != "team_syn_1" {
+		t.Fatalf("admins = %#v", admins)
+	}
+	if len(teams) != 1 || teams[0].Name != "Synthetic Support" {
+		t.Fatalf("teams = %#v", teams)
+	}
+	if len(tags) != 1 || tags[0].Name != "billing" {
+		t.Fatalf("tags = %#v", tags)
+	}
+	if len(sawPaths) != 3 {
+		t.Fatalf("paths = %#v", sawPaths)
+	}
+}
+
+func TestListContactsCapsPaginatedReads(t *testing.T) {
+	var requests int
+	var perPages []string
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		requests++
+		perPages = append(perPages, r.URL.Query().Get("per_page"))
+		w.Header().Set("Content-Type", "application/json")
+		switch requests {
+		case 1:
+			w.Write([]byte(`{"data":[{"id":"contact_syn_1","name":"Casey Example"}],"pages":{"next":{"starting_after":"cursor_2"}}}`))
+		case 2:
+			if r.URL.Query().Get("starting_after") != "cursor_2" {
+				t.Fatalf("starting_after = %q", r.URL.Query().Get("starting_after"))
+			}
+			w.Write([]byte(`{"data":[{"id":"contact_syn_2","email":"jordan@example.invalid"}],"pages":{"next":{}}}`))
+		default:
+			t.Fatalf("unexpected contact request %d", requests)
+		}
+	}))
+	defer server.Close()
+	client := Client{BaseURL: server.URL, HTTPClient: server.Client()}
+	contacts, err := client.ListContacts(context.Background(), 2)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(contacts) != 2 || contacts[1].Name != "jordan@example.invalid" {
+		t.Fatalf("contacts = %#v", contacts)
+	}
+	if perPages[0] != "2" || perPages[1] != "1" {
+		t.Fatalf("per_page values = %#v", perPages)
+	}
+}
+
 func TestRateLimitHandling(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Retry-After", "3")

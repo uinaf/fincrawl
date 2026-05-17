@@ -39,6 +39,22 @@ func TestCheckFilesBlocksProviderConversationURL(t *testing.T) {
 	}
 }
 
+func TestCheckFilesBlocksGeneratedTenantArtifactPaths(t *testing.T) {
+	root := t.TempDir()
+	write(t, root, "reports/live-smoke.txt", "redacted\n")
+	write(t, root, "debug/session.har", "{}")
+	result, err := CheckFiles(root, []string{"reports/live-smoke.txt", "debug/session.har"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if result.OK {
+		t.Fatalf("guard allowed generated tenant artifacts")
+	}
+	if len(result.Findings) != 2 {
+		t.Fatalf("findings = %#v", result.Findings)
+	}
+}
+
 func TestCheckFilesScansGoSourceForSecrets(t *testing.T) {
 	root := t.TempDir()
 	write(t, root, "leak_test.go", `package main

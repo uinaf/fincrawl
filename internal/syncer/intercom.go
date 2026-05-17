@@ -7,6 +7,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"net/http"
 	"sort"
 	"strings"
 	"time"
@@ -31,6 +32,11 @@ type TailSyncOptions struct {
 	Resume        bool
 }
 
+type EntitySyncOptions struct {
+	IncludeContacts bool
+	ContactLimit    int
+}
+
 func (s IntercomSyncer) SyncConversation(ctx context.Context, dbPath, conversationID string) (store.SyncResult, error) {
 	conversationID = strings.TrimSpace(conversationID)
 	if conversationID == "" {
@@ -53,6 +59,71 @@ func (s IntercomSyncer) SyncUpdatedSince(ctx context.Context, dbPath string, upd
 
 func (s IntercomSyncer) ResumeTail(ctx context.Context, dbPath string, limit int) (store.SyncResult, error) {
 	return s.SyncTail(ctx, dbPath, TailSyncOptions{Limit: limit, Resume: true})
+}
+
+func (s IntercomSyncer) SyncEntities(ctx context.Context, dbPath string, opts EntitySyncOptions) (store.SyncResult, error) {
+	var entities store.Entities
+	var warnings []string
+	succeeded := false
+	admins, err := s.listAdmins(ctx)
+	if err != nil {
+		if isScopeDenied(err) {
+			warnings = append(warnings, "admins unavailable: Intercom scope denied")
+		} else {
+			return store.SyncResult{}, err
+		}
+	} else {
+		succeeded = true
+		entities.Admins = normalizeAdmins(admins)
+	}
+	teams, err := s.listTeams(ctx)
+	if err != nil {
+		if isScopeDenied(err) {
+			warnings = append(warnings, "teams unavailable: Intercom scope denied")
+		} else {
+			return store.SyncResult{}, err
+		}
+	} else {
+		succeeded = true
+		entities.Teams = normalizeTeams(teams)
+	}
+	tags, err := s.listTags(ctx)
+	if err != nil {
+		if isScopeDenied(err) {
+			warnings = append(warnings, "tags unavailable: Intercom scope denied")
+		} else {
+			return store.SyncResult{}, err
+		}
+	} else {
+		succeeded = true
+		entities.Tags = normalizeProviderTags(tags)
+	}
+	if opts.IncludeContacts {
+		limit := opts.ContactLimit
+		if limit <= 0 {
+			limit = 50
+		}
+		contacts, err := s.listContacts(ctx, limit)
+		if err != nil {
+			if isScopeDenied(err) {
+				warnings = append(warnings, "contacts unavailable: Intercom scope denied")
+			} else {
+				return store.SyncResult{}, err
+			}
+		} else {
+			succeeded = true
+			entities.Contacts = normalizeContacts(contacts)
+		}
+	}
+	result, err := store.SyncEntities(ctx, dbPath, s.workspace(), entities)
+	if err != nil {
+		return store.SyncResult{}, err
+	}
+	result.Warnings = warnings
+	if !succeeded && len(warnings) > 0 {
+		return store.SyncResult{}, fmt.Errorf("no Intercom entity scopes available; credential may be invalid or missing read scopes")
+	}
+	return result, nil
 }
 
 func (s IntercomSyncer) SyncTail(ctx context.Context, dbPath string, opts TailSyncOptions) (store.SyncResult, error) {
@@ -202,6 +273,46 @@ func (s IntercomSyncer) retrieveConversation(ctx context.Context, id string) (in
 	return result, err
 }
 
+func (s IntercomSyncer) listAdmins(ctx context.Context) ([]intercom.Entity, error) {
+	var result []intercom.Entity
+	err := s.withRateLimitRetry(ctx, func() error {
+		var err error
+		result, err = s.Client.ListAdmins(ctx)
+		return err
+	})
+	return result, err
+}
+
+func (s IntercomSyncer) listTeams(ctx context.Context) ([]intercom.Entity, error) {
+	var result []intercom.Entity
+	err := s.withRateLimitRetry(ctx, func() error {
+		var err error
+		result, err = s.Client.ListTeams(ctx)
+		return err
+	})
+	return result, err
+}
+
+func (s IntercomSyncer) listTags(ctx context.Context) ([]intercom.Entity, error) {
+	var result []intercom.Entity
+	err := s.withRateLimitRetry(ctx, func() error {
+		var err error
+		result, err = s.Client.ListTags(ctx)
+		return err
+	})
+	return result, err
+}
+
+func (s IntercomSyncer) listContacts(ctx context.Context, limit int) ([]intercom.Entity, error) {
+	var result []intercom.Entity
+	err := s.withRateLimitRetry(ctx, func() error {
+		var err error
+		result, err = s.Client.ListContacts(ctx, limit)
+		return err
+	})
+	return result, err
+}
+
 func (s IntercomSyncer) withRateLimitRetry(ctx context.Context, call func() error) error {
 	for attempt := 0; ; attempt++ {
 		err := call()
@@ -220,6 +331,73 @@ func (s IntercomSyncer) withRateLimitRetry(ctx context.Context, call func() erro
 			return err
 		}
 	}
+}
+
+func isScopeDenied(err error) bool {
+	var statusErr intercom.HTTPStatusError
+	if !errors.As(err, &statusErr) {
+		return false
+	}
+	return statusErr.StatusCode == http.StatusUnauthorized || statusErr.StatusCode == http.StatusForbidden
+}
+
+func normalizeAdmins(entities []intercom.Entity) []store.Admin {
+	admins := make([]store.Admin, 0, len(entities))
+	for _, entity := range entities {
+		admins = append(admins, store.Admin{
+			ID:         localID("admin", entity.ID),
+			Provider:   store.ProviderIntercom,
+			ProviderID: entity.ID,
+			Name:       entity.Name,
+			Email:      entity.Email,
+			TeamIDs:    entity.TeamIDs,
+			Raw:        entity.Raw,
+		})
+	}
+	return admins
+}
+
+func normalizeTeams(entities []intercom.Entity) []store.Team {
+	teams := make([]store.Team, 0, len(entities))
+	for _, entity := range entities {
+		teams = append(teams, store.Team{
+			ID:         localID("team", entity.ID),
+			Provider:   store.ProviderIntercom,
+			ProviderID: entity.ID,
+			Name:       entity.Name,
+			Raw:        entity.Raw,
+		})
+	}
+	return teams
+}
+
+func normalizeProviderTags(entities []intercom.Entity) []store.ProviderTag {
+	tags := make([]store.ProviderTag, 0, len(entities))
+	for _, entity := range entities {
+		tags = append(tags, store.ProviderTag{
+			ID:         localID("tag", entity.ID),
+			Provider:   store.ProviderIntercom,
+			ProviderID: entity.ID,
+			Name:       entity.Name,
+			Raw:        entity.Raw,
+		})
+	}
+	return tags
+}
+
+func normalizeContacts(entities []intercom.Entity) []store.Contact {
+	contacts := make([]store.Contact, 0, len(entities))
+	for _, entity := range entities {
+		contacts = append(contacts, store.Contact{
+			ID:         localID("contact", entity.ID),
+			Provider:   store.ProviderIntercom,
+			ProviderID: entity.ID,
+			Name:       entity.Name,
+			Email:      entity.Email,
+			Raw:        entity.Raw,
+		})
+	}
+	return contacts
 }
 
 func (s IntercomSyncer) sleep(ctx context.Context, delay time.Duration) error {
