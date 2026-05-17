@@ -92,6 +92,24 @@ API version.
 
 ## Agent Workflow
 
+Agents that need to use `fincrawl` as a local support archive should load the
+repo skill at [skills/fincrawl/SKILL.md](skills/fincrawl/SKILL.md). It covers
+local search, bounded live sync, tenant-data boundaries, and current CLI Agent
+DX guidance.
+
+Useful agent-facing commands:
+
+```bash
+fincrawl describe search
+fincrawl search "login code expired" --fields provider_id,subject,updated_at
+fincrawl search "login code expired" --fields provider_id,subject,updated_at --ndjson
+fincrawl sync --updated-since 2h --limit 50 --dry-run
+fincrawl archive --fixture testdata/synthetic --recipient age1n9zrm0rcxehv7cm55uqw27v9cguz4ev5dtyl7kxkn3vdpvap94ds2gn6rl --out tmp/snapshot.jsonl.zst.age --dry-run
+```
+
+CLI output defaults to JSON, including structured error envelopes. Use
+`--json=false` only for human-oriented text output.
+
 `./scripts/smoke` runs a fast offline CLI proof against synthetic fixtures.
 `./scripts/verify` runs the full local gate: module tidy check, tests, vet, race
 tests, smoke, guardrails, and whitespace checks.

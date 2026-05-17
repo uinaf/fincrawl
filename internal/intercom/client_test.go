@@ -86,6 +86,21 @@ func TestRetrieveConversationUsesPlaintextDisplay(t *testing.T) {
 	}
 }
 
+func TestRetrieveConversationEscapesPathSegments(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.EscapedPath() != "/conversations/abc%2Fdef" {
+			t.Fatalf("escaped path = %s", r.URL.EscapedPath())
+		}
+		w.Header().Set("Content-Type", "application/json")
+		w.Write([]byte(`{"id":"abc/def","conversation_parts":{"conversation_parts":[]}}`))
+	}))
+	defer server.Close()
+	client := Client{BaseURL: server.URL, HTTPClient: server.Client()}
+	if _, err := client.RetrieveConversation(context.Background(), "abc/def"); err != nil {
+		t.Fatal(err)
+	}
+}
+
 func TestListEntitiesDecodesWorkspaceMetadata(t *testing.T) {
 	var sawPaths []string
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {

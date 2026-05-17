@@ -1,0 +1,7 @@
+interface:
+  display_name: "fincrawl"
+  short_description: "Query local support archives safely"
+  default_prompt: "Use $fincrawl to search local support history and refresh it only when safe."
+policy:
+  allow_implicit_invocation: true
+

@@ -58,7 +58,8 @@ FINCRAWL_LIVE_CONTACT_LIMIT=10 ./scripts/local-live-smoke
 Equivalent direct command:
 
 ```bash
-FINCRAWL_HOME=/tmp/fincrawl-live-smoke go run ./cmd/fincrawl sync --entities --contacts --limit 10 --json
+FINCRAWL_HOME=/tmp/fincrawl-live-smoke go run ./cmd/fincrawl sync --entities --contacts --limit 10 --dry-run
+FINCRAWL_HOME=/tmp/fincrawl-live-smoke go run ./cmd/fincrawl sync --entities --contacts --limit 10
 ```
 
 If the Intercom token does not have an optional read scope, `sync --entities`
@@ -71,8 +72,9 @@ Use exact hydration when you have an approved test conversation ID. Use a
 temporary or ignored home.
 
 ```bash
-FINCRAWL_HOME=/tmp/fincrawl-live-smoke go run ./cmd/fincrawl sync --conversation <approved-test-conversation-id> --json
-FINCRAWL_HOME=/tmp/fincrawl-live-smoke go run ./cmd/fincrawl search "<approved-test-query>" --json
+FINCRAWL_HOME=/tmp/fincrawl-live-smoke go run ./cmd/fincrawl sync --conversation <approved-test-conversation-id> --dry-run
+FINCRAWL_HOME=/tmp/fincrawl-live-smoke go run ./cmd/fincrawl sync --conversation <approved-test-conversation-id>
+FINCRAWL_HOME=/tmp/fincrawl-live-smoke go run ./cmd/fincrawl search "<approved-test-query>"
 ```
 
 For a bounded recent tail sync, keep the window and limit small:
@@ -86,10 +88,11 @@ SQLite, fresh updated-since runs are refused until the active window is
 continued:
 
 ```bash
-FINCRAWL_HOME=/tmp/fincrawl-live-smoke go run ./cmd/fincrawl sync --resume --json
+FINCRAWL_HOME=/tmp/fincrawl-live-smoke go run ./cmd/fincrawl sync --resume --dry-run
+FINCRAWL_HOME=/tmp/fincrawl-live-smoke go run ./cmd/fincrawl sync --resume
 ```
 
-`status --json` reports sync-state timestamps and resume availability. It shows
+`status` reports sync-state timestamps and resume availability. It shows
 booleans for opaque provider markers and page cursors, not the raw provider IDs
 or cursor values.
 
@@ -104,5 +107,5 @@ rm -rf /tmp/fincrawl-live-smoke
 Before committing any follow-up work, run:
 
 ```bash
-go run ./cmd/fincrawl guard --json
+go run ./cmd/fincrawl guard
 ```

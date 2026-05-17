@@ -27,6 +27,7 @@ import (
 type app struct {
 	Doctor   doctorCmd   `cmd:"" help:"Check local configuration."`
 	Metadata metadataCmd `cmd:"" help:"Print machine-readable metadata."`
+	Describe describeCmd `cmd:"" help:"Print machine-readable command schemas."`
 	Status   statusCmd   `cmd:"" help:"Print local archive status."`
 	Sync     syncCmd     `cmd:"" help:"Sync conversations from fixtures or provider APIs."`
 	Search   searchCmd   `cmd:"" help:"Search the local archive."`
@@ -55,14 +56,14 @@ func Run(ctx context.Context, args []string, stdout, stderr io.Writer) error {
 	}
 	kctx, err := parser.Parse(args)
 	if err != nil {
-		return err
+		return output.UsageError{Err: err}
 	}
 	return kctx.Run(commandContext{Context: ctx, stdout: stdout, stderr: stderr})
 }
 
 type doctorCmd struct {
 	Offline bool `help:"Do not attempt live provider calls."`
-	JSON    bool `help:"Print JSON output."`
+	JSON    bool `help:"Print JSON output." default:"true"`
 }
 
 type doctorResult struct {
@@ -148,6 +149,23 @@ func (cmd metadataCmd) Run(ctx commandContext) error {
 	return output.Write(ctx.stdout, format, "metadata", control.Manifest(rt))
 }
 
+type describeCmd struct {
+	Command string `arg:"" optional:"" help:"Optional command name to describe."`
+	JSON    bool   `help:"Print JSON output." default:"true"`
+}
+
+func (cmd describeCmd) Run(ctx commandContext) error {
+	schema, err := describeCommands(cmd.Command)
+	if err != nil {
+		return err
+	}
+	format := output.JSON
+	if !cmd.JSON {
+		format = output.Text
+	}
+	return output.Write(ctx.stdout, format, "describe", schema)
+}
+
 type statusCmd struct {
 	JSON bool `help:"Print JSON output." default:"true"`
 }
@@ -172,7 +190,8 @@ type syncCmd struct {
 	Contacts     bool   `help:"Include a capped contact/user list when used with --entities."`
 	Resume       bool   `help:"Resume an interrupted Intercom updated-since sync window."`
 	Limit        int    `help:"Maximum provider conversations for --updated-since, or contacts for --entities --contacts. Use 0 for no conversation limit." default:"50"`
-	JSON         bool   `help:"Print JSON output."`
+	DryRun       bool   `name:"dry-run" help:"Validate and describe planned sync work without writing local state or calling provider APIs."`
+	JSON         bool   `help:"Print JSON output." default:"true"`
 }
 
 func (cmd syncCmd) Run(ctx commandContext) error {
@@ -184,11 +203,14 @@ func (cmd syncCmd) Run(ctx commandContext) error {
 		return err
 	}
 	if cmd.Fixture != "" {
-		if err := config.EnsureDirs(rt); err != nil {
-			return err
-		}
 		fixture, err := store.LoadFixture(cmd.Fixture)
 		if err != nil {
+			return err
+		}
+		if cmd.DryRun {
+			return writeMaybeJSON(ctx.stdout, cmd.JSON, syncDryRun(cmd.mode(), rt.Config.DBPath, false, fixtureCounts(fixture), nil))
+		}
+		if err := config.EnsureDirs(rt); err != nil {
 			return err
 		}
 		lck, err := lock.Acquire(rt.Config.DBPath)
@@ -203,11 +225,33 @@ func (cmd syncCmd) Run(ctx commandContext) error {
 		return writeMaybeJSON(ctx.stdout, cmd.JSON, result)
 	}
 	if cmd.UpdatedSince != "" || cmd.Conversation != "" || cmd.Entities || cmd.Resume {
-		if config.IntercomToken() == "" {
-			return fmt.Errorf("missing %s for live Intercom sync", config.EnvIntercomCred)
+		var updatedAfter time.Time
+		if cmd.Conversation != "" {
+			if err := validateProviderID("conversation", cmd.Conversation); err != nil {
+				return output.UsageError{Err: err}
+			}
+		}
+		if cmd.UpdatedSince != "" {
+			updatedAfter, err = parseSince(cmd.UpdatedSince, time.Now().UTC())
+			if err != nil {
+				return output.UsageError{Err: err}
+			}
+		}
+		if cmd.DryRun {
+			plan := syncDryRun(cmd.mode(), rt.Config.DBPath, config.IntercomToken() != "", nil, map[string]any{
+				"contacts":      cmd.Contacts,
+				"conversation":  cmd.Conversation,
+				"limit":         cmd.Limit,
+				"updated_after": formatOptionalTime(updatedAfter),
+				"updated_since": cmd.UpdatedSince,
+			})
+			return writeMaybeJSON(ctx.stdout, cmd.JSON, plan)
 		}
 		if err := config.EnsureDirs(rt); err != nil {
 			return err
+		}
+		if config.IntercomToken() == "" {
+			return fmt.Errorf("missing %s for live Intercom sync", config.EnvIntercomCred)
 		}
 		lck, err := lock.Acquire(rt.Config.DBPath)
 		if err != nil {
@@ -239,10 +283,6 @@ func (cmd syncCmd) Run(ctx commandContext) error {
 		} else if cmd.Resume {
 			result, err = s.ResumeTail(ctx, rt.Config.DBPath, cmd.Limit)
 		} else {
-			updatedAfter, err := parseSince(cmd.UpdatedSince, time.Now().UTC())
-			if err != nil {
-				return output.UsageError{Err: err}
-			}
 			result, err = s.SyncUpdatedSince(ctx, rt.Config.DBPath, updatedAfter, time.Now().UTC(), cmd.Limit)
 		}
 		if err != nil {
@@ -251,6 +291,23 @@ func (cmd syncCmd) Run(ctx commandContext) error {
 		return writeMaybeJSON(ctx.stdout, cmd.JSON, result)
 	}
 	panic("unreachable sync mode")
+}
+
+func (cmd syncCmd) mode() string {
+	switch {
+	case cmd.Fixture != "":
+		return "fixture"
+	case cmd.UpdatedSince != "":
+		return "updated-since"
+	case cmd.Conversation != "":
+		return "conversation"
+	case cmd.Entities:
+		return "entities"
+	case cmd.Resume:
+		return "resume"
+	default:
+		return "unknown"
+	}
 }
 
 func (cmd syncCmd) validateMode() error {
@@ -303,9 +360,11 @@ func parseSince(value string, now time.Time) (time.Time, error) {
 }
 
 type searchCmd struct {
-	Query string `arg:"" help:"Search query."`
-	Limit int    `help:"Maximum results." default:"20"`
-	JSON  bool   `help:"Print JSON output."`
+	Query  string `arg:"" help:"Search query."`
+	Limit  int    `help:"Maximum results." default:"20"`
+	Fields string `help:"Comma-separated fields to include in JSON/text output."`
+	NDJSON bool   `name:"ndjson" help:"Print one JSON result per line."`
+	JSON   bool   `help:"Print JSON output." default:"true"`
 }
 
 func (cmd searchCmd) Run(ctx commandContext) error {
@@ -313,18 +372,29 @@ func (cmd searchCmd) Run(ctx commandContext) error {
 	if err != nil {
 		return err
 	}
+	if err := validateSearchFields(cmd.Fields); err != nil {
+		return output.UsageError{Err: err}
+	}
 	results, err := store.Search(ctx, rt.Config.DBPath, cmd.Query, cmd.Limit)
 	if err != nil {
 		return err
 	}
-	return writeMaybeJSON(ctx.stdout, cmd.JSON, results)
+	if cmd.NDJSON {
+		return writeSearchNDJSON(ctx.stdout, results, cmd.Fields)
+	}
+	value, err := projectSearchResults(results, cmd.Fields)
+	if err != nil {
+		return output.UsageError{Err: err}
+	}
+	return writeMaybeJSON(ctx.stdout, cmd.JSON, value)
 }
 
 type archiveCmd struct {
 	Fixture   string `help:"Archive synthetic fixture directory."`
 	Recipient string `help:"Age recipient or SSH public key recipient. Defaults to FINCRAWL_AGE_RECIPIENT."`
 	Out       string `help:"Output path ending in .jsonl.zst.age." required:""`
-	JSON      bool   `help:"Print JSON output."`
+	DryRun    bool   `name:"dry-run" help:"Validate and describe archive output without writing an artifact."`
+	JSON      bool   `help:"Print JSON output." default:"true"`
 }
 
 type archiveResult struct {
@@ -340,8 +410,8 @@ func (cmd archiveCmd) Run(ctx commandContext) error {
 	if cmd.Fixture == "" {
 		return output.UsageError{Err: fmt.Errorf("archive currently requires --fixture")}
 	}
-	if !strings.HasSuffix(cmd.Out, ".jsonl.zst.age") {
-		return output.UsageError{Err: fmt.Errorf("--out must end in .jsonl.zst.age")}
+	if err := validateArchiveOut(cmd.Out); err != nil {
+		return output.UsageError{Err: err}
 	}
 	recipient := strings.TrimSpace(cmd.Recipient)
 	if recipient == "" {
@@ -352,6 +422,12 @@ func (cmd archiveCmd) Run(ctx commandContext) error {
 		return err
 	}
 	records := archive.FixtureRecords(fixture)
+	if cmd.DryRun {
+		if _, err := archive.ParseRecipient(recipient); err != nil {
+			return err
+		}
+		return writeMaybeJSON(ctx.stdout, cmd.JSON, archiveDryRun(cmd.Out, len(records)))
+	}
 	if err := os.MkdirAll(filepath.Dir(cmd.Out), 0o755); err != nil && filepath.Dir(cmd.Out) != "." {
 		return err
 	}
@@ -362,7 +438,7 @@ func (cmd archiveCmd) Run(ctx commandContext) error {
 }
 
 type guardCmd struct {
-	JSON bool `help:"Print JSON output."`
+	JSON bool `help:"Print JSON output." default:"true"`
 }
 
 func (cmd guardCmd) Run(ctx commandContext) error {
@@ -392,7 +468,7 @@ func (cmd guardCmd) Run(ctx commandContext) error {
 }
 
 type versionCmd struct {
-	JSON bool `help:"Print JSON output."`
+	JSON bool `help:"Print JSON output." default:"true"`
 }
 
 func (cmd versionCmd) Run(ctx commandContext) error {

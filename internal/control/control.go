@@ -43,13 +43,14 @@ func Manifest(rt config.Runtime) ckcontrol.Manifest {
 		DefaultShare:    rt.Config.ShareDir,
 	}
 	manifest.Commands = map[string]ckcontrol.Command{
-		"doctor":   {Title: "Check local configuration", Argv: []string{"fincrawl", "doctor", "--offline", "--json"}, JSON: true},
-		"metadata": {Title: "Print machine-readable metadata", Argv: []string{"fincrawl", "metadata", "--json"}, JSON: true},
-		"status":   {Title: "Print archive status", Argv: []string{"fincrawl", "status", "--json"}, JSON: true},
-		"sync":     {Title: "Sync conversations", Argv: []string{"fincrawl", "sync", "--fixture", "testdata/synthetic"}, Mutates: true},
-		"search":   {Title: "Search local archive", Argv: []string{"fincrawl", "search", "query", "--json"}, JSON: true},
-		"archive":  {Title: "Write encrypted archive", Argv: []string{"fincrawl", "archive", "--fixture", "testdata/synthetic", "--recipient", syntheticArchiveRecipient, "--out", "tmp/fincrawl-smoke.jsonl.zst.age"}, Mutates: true},
-		"guard":    {Title: "Check commit guardrails", Argv: []string{"fincrawl", "guard", "--json"}, JSON: true},
+		"doctor":   {Title: "Check local configuration", Argv: []string{"fincrawl", "doctor", "--offline"}, JSON: true},
+		"metadata": {Title: "Print machine-readable metadata", Argv: []string{"fincrawl", "metadata"}, JSON: true},
+		"describe": {Title: "Print command schemas", Argv: []string{"fincrawl", "describe"}, JSON: true},
+		"status":   {Title: "Print archive status", Argv: []string{"fincrawl", "status"}, JSON: true},
+		"sync":     {Title: "Sync conversations", Argv: []string{"fincrawl", "sync", "--fixture", "testdata/synthetic", "--dry-run"}, JSON: true, Mutates: true},
+		"search":   {Title: "Search local archive", Argv: []string{"fincrawl", "search", "query", "--fields", "provider_id,subject,updated_at"}, JSON: true},
+		"archive":  {Title: "Write encrypted archive", Argv: []string{"fincrawl", "archive", "--fixture", "testdata/synthetic", "--recipient", syntheticArchiveRecipient, "--out", "tmp/fincrawl-smoke.jsonl.zst.age", "--dry-run"}, JSON: true, Mutates: true},
+		"guard":    {Title: "Check commit guardrails", Argv: []string{"fincrawl", "guard"}, JSON: true},
 	}
 	manifest.Capabilities = []string{"intercom-api-sync", "sqlite-fts-search", "zstd-age-archive", "synthetic-fixtures"}
 	manifest.Privacy = ckcontrol.Privacy{

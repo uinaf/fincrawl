@@ -3,6 +3,10 @@ package cli
 import (
 	"bytes"
 	"context"
+	"encoding/json"
+	"fmt"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 	"time"
@@ -122,6 +126,201 @@ func TestSyncResumeReachesLiveDispatch(t *testing.T) {
 	}
 }
 
+func TestSyncRejectsUnsafeConversationID(t *testing.T) {
+	t.Setenv("FINCRAWL_HOME", t.TempDir())
+	t.Setenv(config.EnvIntercomCred, "fake-token")
+	var stdout bytes.Buffer
+	var stderr bytes.Buffer
+
+	err := Run(context.Background(), []string{"sync", "--conversation", "../conv?x=1", "--json"}, &stdout, &stderr)
+	if !output.IsUsage(err) {
+		t.Fatalf("expected usage error, got %v", err)
+	}
+	if stdout.Len() != 0 {
+		t.Fatalf("stdout = %q", stdout.String())
+	}
+}
+
+func TestArchiveRejectsAbsoluteOutput(t *testing.T) {
+	t.Setenv("FINCRAWL_HOME", t.TempDir())
+	var stdout bytes.Buffer
+	var stderr bytes.Buffer
+
+	err := Run(context.Background(), []string{
+		"archive",
+		"--fixture", filepath.Join("..", "..", "testdata", "synthetic"),
+		"--recipient", "age1n9zrm0rcxehv7cm55uqw27v9cguz4ev5dtyl7kxkn3vdpvap94ds2gn6rl",
+		"--out", filepath.Join(t.TempDir(), "snapshot.jsonl.zst.age"),
+		"--json",
+	}, &stdout, &stderr)
+	if !output.IsUsage(err) {
+		t.Fatalf("expected usage error, got %v", err)
+	}
+	if stdout.Len() != 0 {
+		t.Fatalf("stdout = %q", stdout.String())
+	}
+}
+
+func TestDescribeSearchPrintsSchema(t *testing.T) {
+	var stdout bytes.Buffer
+	var stderr bytes.Buffer
+
+	if err := Run(context.Background(), []string{"describe", "search", "--json"}, &stdout, &stderr); err != nil {
+		t.Fatal(err)
+	}
+	if !bytes.Contains(stdout.Bytes(), []byte(`"schema_version": "fincrawl.cli.v1"`)) {
+		t.Fatalf("stdout = %q", stdout.String())
+	}
+	if !bytes.Contains(stdout.Bytes(), []byte(`"fields"`)) {
+		t.Fatalf("stdout = %q", stdout.String())
+	}
+}
+
+func TestSearchFieldsProjectsResults(t *testing.T) {
+	t.Setenv("FINCRAWL_HOME", t.TempDir())
+	var stdout bytes.Buffer
+	var stderr bytes.Buffer
+
+	if err := Run(context.Background(), []string{"sync", "--fixture", filepath.Join("..", "..", "testdata", "synthetic"), "--json"}, &stdout, &stderr); err != nil {
+		t.Fatal(err)
+	}
+	stdout.Reset()
+	if err := Run(context.Background(), []string{"search", "Morgan", "--fields", "provider_id,subject", "--json"}, &stdout, &stderr); err != nil {
+		t.Fatal(err)
+	}
+	if !bytes.Contains(stdout.Bytes(), []byte(`"provider_id": "ic_syn_002"`)) {
+		t.Fatalf("stdout = %q", stdout.String())
+	}
+	if bytes.Contains(stdout.Bytes(), []byte(`"snippet"`)) {
+		t.Fatalf("field mask leaked snippet: %q", stdout.String())
+	}
+}
+
+func TestSearchNDJSONStreamsProjectedResults(t *testing.T) {
+	t.Setenv("FINCRAWL_HOME", t.TempDir())
+	var stdout bytes.Buffer
+	var stderr bytes.Buffer
+
+	if err := Run(context.Background(), []string{"sync", "--fixture", filepath.Join("..", "..", "testdata", "synthetic")}, &stdout, &stderr); err != nil {
+		t.Fatal(err)
+	}
+	stdout.Reset()
+	if err := Run(context.Background(), []string{"search", "Morgan", "--fields", "provider_id,subject", "--ndjson"}, &stdout, &stderr); err != nil {
+		t.Fatal(err)
+	}
+	lines := strings.Split(strings.TrimSpace(stdout.String()), "\n")
+	if len(lines) != 1 {
+		t.Fatalf("line count = %d, stdout = %q", len(lines), stdout.String())
+	}
+	if !strings.Contains(lines[0], `"provider_id":"ic_syn_002"`) {
+		t.Fatalf("stdout = %q", stdout.String())
+	}
+	if strings.Contains(lines[0], `"snippet"`) {
+		t.Fatalf("field mask leaked snippet: %q", stdout.String())
+	}
+}
+
+func TestSearchFieldsRejectsUnknownFieldWithoutHits(t *testing.T) {
+	t.Setenv("FINCRAWL_HOME", t.TempDir())
+	var stdout bytes.Buffer
+	var stderr bytes.Buffer
+
+	if err := Run(context.Background(), []string{"sync", "--fixture", filepath.Join("..", "..", "testdata", "synthetic"), "--json"}, &stdout, &stderr); err != nil {
+		t.Fatal(err)
+	}
+	stdout.Reset()
+	err := Run(context.Background(), []string{"search", "zzzunlikely", "--fields", "nope", "--json"}, &stdout, &stderr)
+	if !output.IsUsage(err) {
+		t.Fatalf("expected usage error, got %v", err)
+	}
+	if stdout.Len() != 0 {
+		t.Fatalf("stdout = %q", stdout.String())
+	}
+}
+
+func TestSearchFieldsRejectsUnknownFieldBeforeStoreOpen(t *testing.T) {
+	t.Setenv("FINCRAWL_HOME", t.TempDir())
+	var stdout bytes.Buffer
+	var stderr bytes.Buffer
+
+	err := Run(context.Background(), []string{"search", "anything", "--fields", "nope", "--json"}, &stdout, &stderr)
+	if !output.IsUsage(err) {
+		t.Fatalf("expected usage error, got %v", err)
+	}
+	if stdout.Len() != 0 {
+		t.Fatalf("stdout = %q", stdout.String())
+	}
+}
+
+func TestWriteErrorJSONEnvelope(t *testing.T) {
+	var stderr bytes.Buffer
+
+	exitCode := WriteError(&stderr, output.UsageError{Err: fmt.Errorf("bad input")}, []string{"sync"})
+	if exitCode != 2 {
+		t.Fatalf("exit code = %d, want 2", exitCode)
+	}
+	var envelope struct {
+		OK    bool `json:"ok"`
+		Error struct {
+			Code    string `json:"code"`
+			Message string `json:"message"`
+			Usage   bool   `json:"usage"`
+		} `json:"error"`
+	}
+	if err := json.Unmarshal(stderr.Bytes(), &envelope); err != nil {
+		t.Fatal(err)
+	}
+	if envelope.OK || envelope.Error.Code != "usage_error" || !envelope.Error.Usage || envelope.Error.Message != "bad input" {
+		t.Fatalf("envelope = %#v", envelope)
+	}
+}
+
+func TestWriteErrorTextOptOut(t *testing.T) {
+	var stderr bytes.Buffer
+
+	exitCode := WriteError(&stderr, output.UsageError{Err: fmt.Errorf("bad input")}, []string{"sync", "--json=false"})
+	if exitCode != 2 {
+		t.Fatalf("exit code = %d, want 2", exitCode)
+	}
+	if got := strings.TrimSpace(stderr.String()); got != "bad input" {
+		t.Fatalf("stderr = %q", got)
+	}
+}
+
+func TestWriteErrorJSONEnvelopeAcceptsAssignedJSONFlag(t *testing.T) {
+	var stderr bytes.Buffer
+
+	exitCode := WriteError(&stderr, output.UsageError{Err: fmt.Errorf("bad input")}, []string{"sync", "--json=true"})
+	if exitCode != 2 {
+		t.Fatalf("exit code = %d, want 2", exitCode)
+	}
+	if !bytes.Contains(stderr.Bytes(), []byte(`"code": "usage_error"`)) {
+		t.Fatalf("stderr = %q", stderr.String())
+	}
+}
+
+func TestParserErrorsAreUsageErrors(t *testing.T) {
+	var stdout bytes.Buffer
+	var stderr bytes.Buffer
+
+	args := []string{"search", "--json=true"}
+	err := Run(context.Background(), args, &stdout, &stderr)
+	if !output.IsUsage(err) {
+		t.Fatalf("expected usage error, got %v", err)
+	}
+	if stdout.Len() != 0 {
+		t.Fatalf("stdout = %q", stdout.String())
+	}
+	stderr.Reset()
+	exitCode := WriteError(&stderr, err, args)
+	if exitCode != 2 {
+		t.Fatalf("exit code = %d, want 2", exitCode)
+	}
+	if !bytes.Contains(stderr.Bytes(), []byte(`"usage": true`)) {
+		t.Fatalf("stderr = %q", stderr.String())
+	}
+}
+
 func TestVersionPrintsJSON(t *testing.T) {
 	var stdout bytes.Buffer
 	var stderr bytes.Buffer
@@ -131,6 +330,74 @@ func TestVersionPrintsJSON(t *testing.T) {
 	}
 	if !bytes.Contains(stdout.Bytes(), []byte(`"version": "dev"`)) {
 		t.Fatalf("stdout = %q", stdout.String())
+	}
+}
+
+func TestSyncFixtureDryRunDoesNotCreateDatabase(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("FINCRAWL_HOME", home)
+	rt, err := config.LoadRuntime()
+	if err != nil {
+		t.Fatal(err)
+	}
+	var stdout bytes.Buffer
+	var stderr bytes.Buffer
+
+	err = Run(context.Background(), []string{"sync", "--fixture", filepath.Join("..", "..", "testdata", "synthetic"), "--dry-run"}, &stdout, &stderr)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var plan struct {
+		DryRun      bool `json:"dry_run"`
+		WouldMutate bool `json:"would_mutate"`
+		Counts      struct {
+			Conversations int `json:"conversations"`
+		} `json:"counts"`
+	}
+	if err := json.Unmarshal(stdout.Bytes(), &plan); err != nil {
+		t.Fatal(err)
+	}
+	if !plan.DryRun || !plan.WouldMutate || plan.Counts.Conversations == 0 {
+		t.Fatalf("plan = %#v", plan)
+	}
+	if _, err := os.Stat(rt.Config.DBPath); !os.IsNotExist(err) {
+		t.Fatalf("dry run created database or unexpected stat error: %v", err)
+	}
+}
+
+func TestArchiveDryRunDoesNotWriteArtifact(t *testing.T) {
+	t.Setenv("FINCRAWL_HOME", t.TempDir())
+	out := filepath.Join("tmp", "archive-dry-run-test.jsonl.zst.age")
+	t.Cleanup(func() {
+		_ = os.Remove(out)
+	})
+	var stdout bytes.Buffer
+	var stderr bytes.Buffer
+
+	err := Run(context.Background(), []string{
+		"archive",
+		"--fixture", filepath.Join("..", "..", "testdata", "synthetic"),
+		"--recipient", "age1n9zrm0rcxehv7cm55uqw27v9cguz4ev5dtyl7kxkn3vdpvap94ds2gn6rl",
+		"--out", out,
+		"--dry-run",
+	}, &stdout, &stderr)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var plan struct {
+		DryRun      bool   `json:"dry_run"`
+		WouldMutate bool   `json:"would_mutate"`
+		Output      string `json:"output"`
+		Records     int    `json:"records"`
+	}
+	if err := json.Unmarshal(stdout.Bytes(), &plan); err != nil {
+		t.Fatal(err)
+	}
+	if !plan.DryRun || !plan.WouldMutate || plan.Output != out || plan.Records == 0 {
+		t.Fatalf("plan = %#v", plan)
+	}
+	if _, err := os.Stat(out); !os.IsNotExist(err) {
+		t.Fatalf("dry run wrote artifact or unexpected stat error: %v", err)
 	}
 }
 
