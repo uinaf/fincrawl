@@ -12,7 +12,8 @@ fincrawl search "login code expired" --fields provider_id,subject,updated_at --n
 ```
 
 Keep queries short and concrete. Combine product terms, problem words, tag-like
-terms, assignee names, state, rating, or Fin-like status when useful.
+terms, assignee names, state, rating, or Intercom-exposed Fin status when
+useful.
 
 Use `--fields` when the task only needs a compact subset. For first-pass lookup,
 prefer `provider_id,subject,updated_at,state`; add `snippet`, `participants`, or

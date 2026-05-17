@@ -75,7 +75,7 @@ Use `POST /conversations/search` for incremental tail sync. Query on
 Use `GET /conversations/{conversation_id}` for exact hydration. Conversation
 parts are hydration data, not a separate global stream. Store the raw provider
 JSON and normalize conversations, parts, participants, tags, assignees, ratings,
-and Fin metadata into SQLite.
+and Intercom-exposed Fin participation metadata into SQLite.
 
 Hydrate admins, teams, tags, and minimal contacts/users through read-only API
 calls when scopes allow. Treat these as support entities for search and display,
@@ -124,7 +124,8 @@ Committed fixtures must be synthetic. Build fake conversations that exercise:
 - exact hydration with `conversation_parts`
 - plaintext display bodies plus raw provider JSON
 - rate-limit headers and 429 responses
-- tags, admins, contacts, assignments, ratings, and Fin-like synthetic metadata
+- tags, admins, contacts, assignments, ratings, and synthetic Fin participation
+  metadata
 - missing optional entity scopes and partial local search behavior
 
 Never paste real tenant JSON into this repo, even redacted or encrypted.

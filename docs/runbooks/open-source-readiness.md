@@ -1,9 +1,10 @@
-# Open Source Readiness
+# Public Repository Readiness
 
 Status: active public-repository checklist
 
 `fincrawl` is public generic infrastructure. Use this checklist before major
 public-facing changes, release pipeline changes, or any future history rewrite.
+Release mechanics live in [Distribution](../distribution.md).
 
 Tenant stores stay private. Making `uinaf/fincrawl` public does not make any
 tenant credentials, tenant config, encrypted snapshots, plaintext scratch data,
@@ -54,7 +55,9 @@ blocker.
 
 ## History Audit
 
-Search reachable history before changing visibility:
+Search reachable history before public-facing changes that could expose old
+objects, before any future history rewrite, or before changing release
+provenance:
 
 ```bash
 secret_uri_pattern='op'"://"'[^<]'
