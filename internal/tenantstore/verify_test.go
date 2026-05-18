@@ -3,6 +3,7 @@ package tenantstore
 import (
 	"context"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -186,6 +187,140 @@ func TestVerifyRejectsSymlinkedManifest(t *testing.T) {
 	}
 }
 
+func TestVerifyAcceptsNonArtifactDocSymlink(t *testing.T) {
+	root := t.TempDir()
+	if err := os.MkdirAll(filepath.Join(root, "snapshots"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(root, "snapshots", "one.jsonl.zst.age"), []byte("encrypted"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(root, "AGENTS.md"), []byte("agent guide"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Symlink("AGENTS.md", filepath.Join(root, "CLAUDE.md")); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(root, "manifest.json"), []byte(`{"snapshots":[{"path":"snapshots/one.jsonl.zst.age"}]}`), 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	report, err := Verify(context.Background(), root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !report.OK {
+		t.Fatalf("report = %#v", report)
+	}
+}
+
+func TestVerifyRejectsNonDocSymlinkEvenWithSafeLookingName(t *testing.T) {
+	root := t.TempDir()
+	outside := t.TempDir()
+	if err := os.WriteFile(filepath.Join(outside, "archive.db"), []byte("private"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.MkdirAll(filepath.Join(root, "snapshots"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(root, "snapshots", "one.jsonl.zst.age"), []byte("encrypted"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Symlink(filepath.Join(outside, "archive.db"), filepath.Join(root, "notes")); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(root, "manifest.json"), []byte(`{"snapshots":[{"path":"snapshots/one.jsonl.zst.age"}]}`), 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	report, err := Verify(context.Background(), root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if report.OK {
+		t.Fatalf("report unexpectedly OK: %#v", report)
+	}
+	if !hasFindingReason(report, "must not contain symlinks") {
+		t.Fatalf("findings = %#v, want symlink finding", report.Findings)
+	}
+}
+
+func TestVerifySkipsGitIgnoredLocalRuntimeDirectory(t *testing.T) {
+	if _, err := exec.LookPath("git"); err != nil {
+		t.Skip("git not found")
+	}
+	root := t.TempDir()
+	if err := runGit(root, "init"); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(root, ".gitignore"), []byte("state/\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.MkdirAll(filepath.Join(root, "snapshots"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.MkdirAll(filepath.Join(root, "state"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(root, "state", "archive.db"), []byte("private"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(root, "snapshots", "one.jsonl.zst.age"), []byte("encrypted"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(root, "manifest.json"), []byte(`{"snapshots":[{"path":"snapshots/one.jsonl.zst.age"}]}`), 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	report, err := Verify(context.Background(), root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !report.OK {
+		t.Fatalf("report = %#v", report)
+	}
+}
+
+func TestVerifyDoesNotUseParentGitIgnoreForNestedStore(t *testing.T) {
+	if _, err := exec.LookPath("git"); err != nil {
+		t.Skip("git not found")
+	}
+	parent := t.TempDir()
+	if err := runGit(parent, "init"); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(parent, ".gitignore"), []byte("tmp/\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	root := filepath.Join(parent, "tmp", "store")
+	if err := os.MkdirAll(filepath.Join(root, "snapshots"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.MkdirAll(filepath.Join(root, "state"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(root, "state", "archive.db"), []byte("private"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(root, "snapshots", "one.jsonl.zst.age"), []byte("encrypted"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(root, "manifest.json"), []byte(`{"snapshots":[{"path":"snapshots/one.jsonl.zst.age"}]}`), 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	report, err := Verify(context.Background(), root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if report.OK {
+		t.Fatalf("report unexpectedly OK: %#v", report)
+	}
+	if !hasFindingReason(report, "runtime or report directories") {
+		t.Fatalf("findings = %#v, want runtime directory finding", report.Findings)
+	}
+}
+
 func TestVerifyRejectsRuntimeReportFiles(t *testing.T) {
 	root := t.TempDir()
 	if err := os.MkdirAll(filepath.Join(root, "snapshots"), 0o755); err != nil {
@@ -308,4 +443,10 @@ func hasFindingReason(report Report, text string) bool {
 		}
 	}
 	return false
+}
+
+func runGit(root string, args ...string) error {
+	cmd := exec.Command("git", args...)
+	cmd.Dir = root
+	return cmd.Run()
 }

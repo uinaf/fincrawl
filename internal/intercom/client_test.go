@@ -12,6 +12,7 @@ import (
 func TestSearchConversationsUsesSearchCursorAndVersion(t *testing.T) {
 	var sawVersion string
 	var sawCursor string
+	var sawQuery []map[string]any
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.URL.Path != "/conversations/search" {
 			t.Fatalf("path = %s", r.URL.Path)
@@ -21,11 +22,15 @@ func TestSearchConversationsUsesSearchCursorAndVersion(t *testing.T) {
 		}
 		sawVersion = r.Header.Get("Intercom-Version")
 		var body struct {
+			Query struct {
+				Value []map[string]any `json:"value"`
+			} `json:"query"`
 			Pagination map[string]any `json:"pagination"`
 		}
 		if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
 			t.Fatal(err)
 		}
+		sawQuery = body.Query.Value
 		sawCursor, _ = body.Pagination["starting_after"].(string)
 		w.Header().Set("Content-Type", "application/json")
 		w.Write([]byte(`{"conversations":[{"id":"conversation_1","updated_at":1770000000}],"pages":{"next":{"starting_after":"cursor_2"}}}`))
@@ -41,6 +46,9 @@ func TestSearchConversationsUsesSearchCursorAndVersion(t *testing.T) {
 	}
 	if sawCursor != "cursor_1" {
 		t.Fatalf("cursor = %q", sawCursor)
+	}
+	if len(sawQuery) != 2 || sawQuery[0]["value"] != float64(0) || sawQuery[1]["value"] != float64(3) {
+		t.Fatalf("query bounds = %#v, want strict operators around inclusive seconds", sawQuery)
 	}
 	if result.NextCursor != "cursor_2" {
 		t.Fatalf("next cursor = %q", result.NextCursor)

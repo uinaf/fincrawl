@@ -34,16 +34,19 @@ this repo.
 
 ## Next
 
-- Broaden exact hydration/search ergonomics around known provider URLs while
-  keeping provider IDs path-safe.
-- Add more sync torture coverage around interrupted multi-page windows and
-  repeated transient failures.
+- Run bounded tenant-owned live crawling after each release candidate and keep
+  only generic pass/fail notes in this repo.
+- Move to maintenance mode once bounded live crawling, encrypted publish,
+  tenant-store verification, local subscribe, search, and show all work without
+  repo-boundary exceptions.
 - Add persisted local subscription metadata only if repeated local store imports
-  need stale checks or operator reminders.
+  prove that stale checks or operator reminders are worth the extra surface.
 
 ## Later
 
 - Remote publish/subscribe commands for private encrypted stores.
+- Provider URL ergonomics for exact hydration/search if daily use shows the
+  copy-paste path is painful.
 - Official cloud export ingestion for broad historical backfills.
 - Attachment metadata and optional attachment-byte handling.
 - Additional support providers behind the same archive boundary.

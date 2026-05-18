@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"io/fs"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"strings"
 	"unicode"
@@ -204,14 +205,21 @@ func scanStoreRoot(ctx context.Context, root string) ([]Finding, error) {
 			}
 			return nil
 		}
+		if gitIgnored(ctx, root, rel) {
+			if entry.IsDir() {
+				return filepath.SkipDir
+			}
+			return nil
+		}
 		name := strings.ToLower(entry.Name())
 		if entry.Type()&fs.ModeSymlink != 0 {
-			findings = append(findings, Finding{Path: rel, Reason: "tenant store must not contain symlinks"})
+			if !allowedDocSymlink(path, rel) {
+				findings = append(findings, Finding{Path: rel, Reason: "tenant store must not contain symlinks outside the CLAUDE.md to AGENTS.md doc alias"})
+			}
 			return nil
 		}
 		if entry.IsDir() {
-			switch name {
-			case "logs", "reports", "screenshots", "state", "transcripts":
+			if runtimeDirectoryName(name) {
 				findings = append(findings, Finding{Path: rel, Reason: "tenant store must not contain plaintext runtime or report directories"})
 				return filepath.SkipDir
 			}
@@ -228,12 +236,62 @@ func scanStoreRoot(ctx context.Context, root string) ([]Finding, error) {
 	return findings, err
 }
 
+func allowedDocSymlink(path, rel string) bool {
+	if filepath.ToSlash(rel) != "CLAUDE.md" {
+		return false
+	}
+	target, err := os.Readlink(path)
+	if err != nil {
+		return false
+	}
+	return filepath.ToSlash(filepath.Clean(target)) == "AGENTS.md"
+}
+
+func gitIgnored(ctx context.Context, root, rel string) bool {
+	if rel == "." || strings.TrimSpace(rel) == "" {
+		return false
+	}
+	worktreeRoot, err := gitWorktreeRoot(ctx, root)
+	if err != nil || canonicalPath(worktreeRoot) != canonicalPath(root) {
+		return false
+	}
+	cmd := exec.CommandContext(ctx, "git", "-C", root, "check-ignore", "-q", "--", rel)
+	return cmd.Run() == nil
+}
+
+func gitWorktreeRoot(ctx context.Context, root string) (string, error) {
+	cmd := exec.CommandContext(ctx, "git", "-C", root, "rev-parse", "--show-toplevel")
+	out, err := cmd.Output()
+	if err != nil {
+		return "", err
+	}
+	return filepath.Clean(strings.TrimSpace(string(out))), nil
+}
+
+func canonicalPath(path string) string {
+	clean := filepath.Clean(path)
+	resolved, err := filepath.EvalSymlinks(clean)
+	if err != nil {
+		return clean
+	}
+	return filepath.Clean(resolved)
+}
+
 func (report *Report) add(findings ...Finding) {
 	report.Findings = append(report.Findings, findings...)
 }
 
 func encryptedSnapshotPath(path string) bool {
 	return strings.HasSuffix(path, ".jsonl.zst.age") || strings.HasSuffix(path, ".tar.zst.age")
+}
+
+func runtimeDirectoryName(name string) bool {
+	switch name {
+	case "logs", "reports", "screenshots", "state", "transcripts":
+		return true
+	default:
+		return false
+	}
 }
 
 func plaintextArtifact(path string) bool {

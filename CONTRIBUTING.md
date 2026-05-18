@@ -48,11 +48,8 @@ Run the full local gate before opening a pull request:
 ./scripts/verify
 ```
 
-For release configuration changes, also run:
-
-```bash
-./scripts/release-check
-```
+The full gate includes tests, vet, race tests, smoke, guardrails, release
+configuration validation, and whitespace checks.
 
 For docs-only changes, at minimum check the linked doc surface and run the repo
 guard:

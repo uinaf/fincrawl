@@ -94,6 +94,12 @@ Sync paths are deliberately separate:
 - Tail sync searches recently updated conversations, stores resumable sync
   state, then hydrates exact conversations.
 
+Tail sync widens Intercom search bounds by one second while keeping strict
+provider operators. This makes user-facing updated-since / updated-before
+windows inclusive at Intercom's second-level `updated_at` precision. Adjacent
+windows can intentionally overlap on the boundary; SQLite upserts keep repeated
+hydration idempotent.
+
 Provider access must use supported APIs or official export paths only. Browser
 scraping, undocumented endpoint crawling, credential-sharing workarounds, and
 rate-limit bypasses are out of scope.
@@ -116,6 +122,10 @@ Tenant stores can be checked locally with `fincrawl store verify <path>`. The
 verifier reads `manifest.json`, requires manifest snapshots to point at existing
 compressed age-encrypted artifacts, and rejects plaintext archives, SQLite
 stores, runtime state, logs, reports, screenshots, and transcripts.
+When the store path is a Git checkout, ignored local scratch paths are skipped
+so a developer's runtime state does not block verification of the committable
+store contents. Manifest and referenced snapshot paths are still checked
+directly and must not be symlinks.
 
 `fincrawl subscribe <path>` is a local one-shot subscriber flow. It verifies a
 tenant-controlled store, reads the manifest, and imports listed

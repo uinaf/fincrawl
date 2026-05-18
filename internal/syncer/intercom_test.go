@@ -377,6 +377,71 @@ func TestSyncUpdatedSinceReportsWorkspaceForEmptyWindows(t *testing.T) {
 	}
 }
 
+func TestSyncUpdatedSinceIncludesAdjacentWindowBoundarySeconds(t *testing.T) {
+	var searchBounds [][]map[string]any
+	var retrieved []string
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		switch r.URL.Path {
+		case "/conversations/search":
+			var body struct {
+				Query struct {
+					Value []map[string]any `json:"value"`
+				} `json:"query"`
+			}
+			if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+				t.Fatal(err)
+			}
+			searchBounds = append(searchBounds, body.Query.Value)
+			w.Write([]byte(`{"conversations":[{"id":"conv_boundary","updated_at":200}],"pages":{"next":{}}}`))
+		case "/conversations/conv_boundary":
+			retrieved = append(retrieved, "conv_boundary")
+			w.Write([]byte(`{
+				"id": "conv_boundary",
+				"title": "Synthetic boundary thread",
+				"state": "open",
+				"created_at": 100,
+				"updated_at": 200,
+				"conversation_parts": {"conversation_parts": []}
+			}`))
+		default:
+			t.Fatalf("unexpected path = %s", r.URL.Path)
+		}
+	}))
+	defer server.Close()
+	dbPath := filepath.Join(t.TempDir(), "fincrawl.db")
+	s := IntercomSyncer{
+		Client: intercom.Client{BaseURL: server.URL, Token: "fake-token", HTTPClient: server.Client()},
+		Now:    func() time.Time { return time.Unix(1770000000, 0) },
+	}
+
+	if _, err := s.SyncUpdatedSince(context.Background(), dbPath, time.Unix(100, 0), time.Unix(200, 0), 0); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := s.SyncUpdatedSince(context.Background(), dbPath, time.Unix(200, 0), time.Unix(300, 0), 0); err != nil {
+		t.Fatal(err)
+	}
+	if len(searchBounds) != 2 {
+		t.Fatalf("searches = %#v", searchBounds)
+	}
+	if searchBounds[0][0]["value"] != float64(99) || searchBounds[0][1]["value"] != float64(201) {
+		t.Fatalf("first window bounds = %#v", searchBounds[0])
+	}
+	if searchBounds[1][0]["value"] != float64(199) || searchBounds[1][1]["value"] != float64(301) {
+		t.Fatalf("second window bounds = %#v", searchBounds[1])
+	}
+	if len(retrieved) != 2 {
+		t.Fatalf("retrieved = %#v, want boundary conversation covered by both adjacent windows", retrieved)
+	}
+	counts, err := store.Counts(context.Background(), dbPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if counts.Conversations != 1 {
+		t.Fatalf("conversation count = %d, want idempotent boundary upsert", counts.Conversations)
+	}
+}
+
 func TestResumeTailContinuesAfterLimitedRun(t *testing.T) {
 	var retrieved []string
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -435,6 +500,80 @@ func TestResumeTailContinuesAfterLimitedRun(t *testing.T) {
 	}
 	if !ok || state.ActiveWindowEnd != "" || state.LastProviderID != "" || state.HighWaterMark == "" {
 		t.Fatalf("state after resume = %#v", state)
+	}
+	counts, err := store.Counts(context.Background(), dbPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if counts.Conversations != 2 {
+		t.Fatalf("conversation count = %d, want 2", counts.Conversations)
+	}
+}
+
+func TestResumeTailContinuesAcrossPagesAfterLimitedRun(t *testing.T) {
+	var searches []string
+	var retrieved []string
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		switch r.URL.Path {
+		case "/conversations/search":
+			var body struct {
+				Pagination map[string]any `json:"pagination"`
+			}
+			if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+				t.Fatal(err)
+			}
+			cursor, _ := body.Pagination["starting_after"].(string)
+			searches = append(searches, cursor)
+			if cursor == "" {
+				w.Write([]byte(`{"conversations":[{"id":"conv_fake_1","updated_at":1770000300}],"pages":{"next":{"starting_after":"cursor_2"}}}`))
+				return
+			}
+			if cursor != "cursor_2" {
+				t.Fatalf("cursor = %q, want cursor_2", cursor)
+			}
+			w.Write([]byte(`{"conversations":[{"id":"conv_fake_2","updated_at":1770000400}],"pages":{"next":{}}}`))
+		case "/conversations/conv_fake_1", "/conversations/conv_fake_2":
+			id := r.URL.Path[len("/conversations/"):]
+			retrieved = append(retrieved, id)
+			w.Write([]byte(`{
+				"id": "` + id + `",
+				"title": "Synthetic paged resume thread",
+				"state": "open",
+				"created_at": 1770000000,
+				"updated_at": 1770000300,
+				"conversation_parts": {"conversation_parts": []}
+			}`))
+		default:
+			t.Fatalf("unexpected path = %s", r.URL.Path)
+		}
+	}))
+	defer server.Close()
+	dbPath := filepath.Join(t.TempDir(), "fincrawl.db")
+	s := IntercomSyncer{
+		Client: intercom.Client{BaseURL: server.URL, Token: "fake-token", HTTPClient: server.Client()},
+		Now:    func() time.Time { return time.Unix(1770000000, 0) },
+	}
+
+	first, err := s.SyncUpdatedSince(context.Background(), dbPath, time.Unix(1769990000, 0), time.Unix(1770000500, 0), 1)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if first.Conversations != 1 {
+		t.Fatalf("first result = %#v", first)
+	}
+	second, err := s.ResumeTail(context.Background(), dbPath, 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if second.Conversations != 1 {
+		t.Fatalf("second result = %#v", second)
+	}
+	if len(searches) != 3 || searches[0] != "" || searches[1] != "" || searches[2] != "cursor_2" {
+		t.Fatalf("search cursors = %#v", searches)
+	}
+	if len(retrieved) != 2 || retrieved[0] != "conv_fake_1" || retrieved[1] != "conv_fake_2" {
+		t.Fatalf("retrieved = %#v", retrieved)
 	}
 	counts, err := store.Counts(context.Background(), dbPath)
 	if err != nil {

@@ -455,12 +455,13 @@ func resetDelay(header http.Header, now time.Time) time.Duration {
 }
 
 func searchBody(updatedAfter, updatedBefore time.Time, startingAfter string) map[string]any {
+	after, before := inclusiveSecondBounds(updatedAfter, updatedBefore)
 	body := map[string]any{
 		"query": map[string]any{
 			"operator": "AND",
 			"value": []map[string]any{
-				{"field": "updated_at", "operator": ">", "value": updatedAfter.Unix()},
-				{"field": "updated_at", "operator": "<", "value": updatedBefore.Unix()},
+				{"field": "updated_at", "operator": ">", "value": after.Unix()},
+				{"field": "updated_at", "operator": "<", "value": before.Unix()},
 			},
 		},
 		"sort": map[string]any{
@@ -475,4 +476,8 @@ func searchBody(updatedAfter, updatedBefore time.Time, startingAfter string) map
 		body["pagination"].(map[string]any)["starting_after"] = startingAfter
 	}
 	return body
+}
+
+func inclusiveSecondBounds(updatedAfter, updatedBefore time.Time) (time.Time, time.Time) {
+	return updatedAfter.Add(-time.Second), updatedBefore.Add(time.Second)
 }

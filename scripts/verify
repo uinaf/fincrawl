@@ -20,6 +20,7 @@ go vet ./...
 go test -race ./...
 ./scripts/smoke
 go run ./cmd/fincrawl guard --json
+./scripts/release-check
 git diff --check
 
 echo "verify ok"
