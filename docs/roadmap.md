@@ -12,7 +12,10 @@ this repo.
 - Offline `doctor`, `metadata`, `status`, `describe`, and `guard` commands.
 - Synthetic fixture sync for deterministic tests.
 - SQLite archive with FTS-backed search.
-- Search filters for state, tag, and Intercom-exposed Fin status.
+- Search ranking, compact field masks, NDJSON streams, and filters for state,
+  tag, and Intercom-exposed Fin status.
+- `show` for one local conversation by local ID or provider ID, with sanitized
+  snippets and opt-in sanitized parts.
 - Read-only Intercom entity sync for admins, teams, tags, and capped contacts
   when scopes allow.
 - Exact conversation hydration and bounded updated-since / updated-before tail
@@ -20,6 +23,8 @@ this repo.
 - Resumable sync state with privacy-safe status output.
 - Canonical JSONL export from fixtures or local SQLite.
 - zstd + age encrypted `archive`, `publish`, and `import` flows.
+- Generic `store verify` checks for tenant-controlled encrypted snapshot
+  manifests.
 - Repository guardrails for plaintext archives, generated artifacts, secret
   patterns, provider URLs, and transcript-like files.
 - Agent-facing skill guidance under `skills/fincrawl/`.
@@ -27,12 +32,12 @@ this repo.
 
 ## Next
 
-- Tighten local search result ranking and result fields from stored entity data.
-- Improve import/search ergonomics for read-only subscribers.
-- Add a small, generic tenant-store wrapper contract without committing tenant
-  config or artifacts here.
-- Add focused tests for more provider pagination, rate-limit, and resume edge
-  cases.
+- Add a read-only subscriber flow that can pull/import a local tenant store
+  path without adding remote push or schedule mechanics.
+- Broaden exact hydration/search ergonomics around known provider URLs while
+  keeping provider IDs path-safe.
+- Add more sync torture coverage around interrupted multi-page windows and
+  repeated transient failures.
 
 ## Later
 

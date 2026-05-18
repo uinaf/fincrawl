@@ -81,6 +81,12 @@ Plaintext archive outputs are local-only scratch data and must be ignored or
 blocked by preflight checks. Tenant encrypted artifacts are still tenant data and
 belong in tenant-controlled private storage, not in `uinaf/fincrawl`.
 
+Use `fincrawl store verify <tenant-store-root>` on tenant-controlled stores
+before importing from them. The verifier expects `manifest.json` to reference
+existing compressed age-encrypted snapshots with relative paths and rejects
+plaintext archives, local databases, runtime state, logs, reports, screenshots,
+and transcripts.
+
 Encryption recipients may be native `age1...` recipients or SSH public keys
 accepted by age. Private age identities and private SSH keys must stay outside
 the repo. Import dry-runs still need a private decrypt identity because they

@@ -117,6 +117,206 @@ func TestSyncFixtureAndSearch(t *testing.T) {
 	}
 }
 
+func TestGetConversationShowsSanitizedDetails(t *testing.T) {
+	ctx := context.Background()
+	dbPath := filepath.Join(t.TempDir(), "archive.db")
+	workspace := Workspace{ID: "synthetic_workspace", Provider: ProviderIntercom, Name: "Synthetic Workspace", CreatedAt: "2026-01-01T00:00:00Z"}
+	conversation := Conversation{
+		ID:           "conversation_syn_sanitized",
+		Provider:     ProviderIntercom,
+		ProviderID:   "syn_sanitized",
+		Subject:      "Synthetic sanitized thread",
+		State:        "open",
+		Participants: []string{"Control Example"},
+		Tags:         []string{"synthetic"},
+		CreatedAt:    "2026-01-01T00:00:00Z",
+		UpdatedAt:    "2026-01-01T01:00:00Z",
+		Parts: []Part{
+			{ID: "part_syn_sanitized", ProviderID: "part_syn_sanitized", Type: "comment", AuthorName: "Synthetic User", Body: "hello\n\tworld with   space", CreatedAt: "2026-01-01T00:05:00Z", UpdatedAt: "2026-01-01T00:05:00Z"},
+		},
+	}
+	if _, err := SyncConversations(ctx, dbPath, workspace, []Conversation{conversation}); err != nil {
+		t.Fatal(err)
+	}
+
+	detail, err := GetConversation(ctx, dbPath, "syn_sanitized", ConversationDetailOptions{IncludeParts: true, PartLimit: 5})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if detail.ID != "conversation_syn_sanitized" || detail.ProviderID != "syn_sanitized" {
+		t.Fatalf("detail = %#v", detail)
+	}
+	if detail.Snippet != "hello world with space" {
+		t.Fatalf("snippet = %q", detail.Snippet)
+	}
+	if len(detail.Parts) != 1 || detail.Parts[0].Body != "hello world with space" {
+		t.Fatalf("parts = %#v", detail.Parts)
+	}
+}
+
+func TestGetConversationReadsLegacyArchiveWithoutOptionalTables(t *testing.T) {
+	ctx := context.Background()
+	dbPath := filepath.Join(t.TempDir(), "archive.db")
+	const legacyDetailSchema = `
+create table if not exists conversations (
+	id text primary key,
+	provider_id text not null,
+	subject text not null,
+	state text not null,
+	assignee text not null default '',
+	rating text not null default '',
+	fin_status text not null default '',
+	created_at text not null,
+	updated_at text not null
+);
+create table if not exists conversation_parts (
+	id text primary key,
+	conversation_id text not null,
+	provider_id text not null,
+	part_type text not null,
+	author_name text not null,
+	body text not null,
+	created_at text not null,
+	updated_at text not null
+);
+`
+	st, err := ckstore.Open(ctx, ckstore.Options{Path: dbPath, Schema: legacyDetailSchema, SchemaVersion: 1})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := st.DB().ExecContext(ctx, `insert into conversations(
+		id, provider_id, subject, state, assignee, rating, fin_status, created_at, updated_at
+	) values('legacy_detail', 'ic_legacy_detail', 'Legacy detail', 'open', '', '', '', '2026-01-01T00:00:00Z', '2026-01-02T00:00:00Z')`); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := st.DB().ExecContext(ctx, `insert into conversation_parts(
+		id, conversation_id, provider_id, part_type, author_name, body, created_at, updated_at
+	) values('legacy_part', 'legacy_detail', 'legacy_part', 'comment', 'Synthetic User', 'legacy body', '2026-01-01T01:00:00Z', '2026-01-01T01:00:00Z')`); err != nil {
+		t.Fatal(err)
+	}
+	if err := st.Close(); err != nil {
+		t.Fatal(err)
+	}
+
+	detail, err := GetConversation(ctx, dbPath, "ic_legacy_detail", ConversationDetailOptions{IncludeParts: true, PartLimit: 5})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if detail.ProviderID != "ic_legacy_detail" || detail.Snippet != "legacy body" {
+		t.Fatalf("detail = %#v", detail)
+	}
+	if len(detail.Parts) != 1 || detail.Parts[0].Body != "legacy body" {
+		t.Fatalf("parts = %#v", detail.Parts)
+	}
+	if len(detail.Tags) != 0 || len(detail.Participants) != 0 {
+		t.Fatalf("optional data leaked from missing tables: %#v", detail)
+	}
+}
+
+func TestSearchReturnsScoresAndSanitizedSnippets(t *testing.T) {
+	ctx := context.Background()
+	dbPath := filepath.Join(t.TempDir(), "archive.db")
+	workspace := Workspace{ID: "synthetic_workspace", Provider: ProviderIntercom, Name: "Synthetic Workspace", CreatedAt: "2026-01-01T00:00:00Z"}
+	conversations := []Conversation{
+		{
+			ID:         "conversation_syn_alpha_subject",
+			Provider:   ProviderIntercom,
+			ProviderID: "syn_alpha_subject",
+			Subject:    "Alpha exact topic",
+			State:      "open",
+			CreatedAt:  "2026-01-01T00:00:00Z",
+			UpdatedAt:  "2026-01-01T01:00:00Z",
+			Parts:      []Part{{ID: "part_syn_alpha_1", ProviderID: "part_syn_alpha_1", Type: "comment", Body: "boring body", CreatedAt: "2026-01-01T00:05:00Z", UpdatedAt: "2026-01-01T00:05:00Z"}},
+		},
+		{
+			ID:         "conversation_syn_alpha_body",
+			Provider:   ProviderIntercom,
+			ProviderID: "syn_alpha_body",
+			Subject:    "Different subject",
+			State:      "open",
+			CreatedAt:  "2026-01-02T00:00:00Z",
+			UpdatedAt:  "2026-01-02T01:00:00Z",
+			Parts:      []Part{{ID: "part_syn_alpha_2", ProviderID: "part_syn_alpha_2", Type: "comment", Body: "alpha in\nbody", CreatedAt: "2026-01-02T00:05:00Z", UpdatedAt: "2026-01-02T00:05:00Z"}},
+		},
+	}
+	if _, err := SyncConversations(ctx, dbPath, workspace, conversations); err != nil {
+		t.Fatal(err)
+	}
+	results, err := Search(ctx, dbPath, "alpha", 10)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(results) != 2 {
+		t.Fatalf("results = %#v", results)
+	}
+	if results[0].ProviderID != "syn_alpha_subject" {
+		t.Fatalf("top result = %#v, want subject hit before newer body-only hit", results)
+	}
+	if results[0].Score == 0 || results[1].Score == 0 || results[0].Score < results[1].Score {
+		t.Fatalf("scores were not ordered: %#v", results)
+	}
+	for _, result := range results {
+		if strings.ContainsAny(result.Snippet, "\x00\n\t") {
+			t.Fatalf("unsafe snippet = %q", result.Snippet)
+		}
+	}
+}
+
+func TestSearchLikeFallbackOrdersByScore(t *testing.T) {
+	ctx := context.Background()
+	dbPath := filepath.Join(t.TempDir(), "archive.db")
+	workspace := Workspace{ID: "synthetic_workspace", Provider: ProviderIntercom, Name: "Synthetic Workspace", CreatedAt: "2026-01-01T00:00:00Z"}
+	conversations := []Conversation{
+		{
+			ID:         "fallback_subject_id",
+			Provider:   ProviderIntercom,
+			ProviderID: "fallback_subject",
+			Subject:    "Alpha exact topic",
+			State:      "open",
+			CreatedAt:  "2026-01-01T00:00:00Z",
+			UpdatedAt:  "2026-01-01T01:00:00Z",
+			Parts:      []Part{{ID: "fallback_part_subject", ProviderID: "fallback_part_subject", Type: "comment", Body: "boring body", CreatedAt: "2026-01-01T00:05:00Z", UpdatedAt: "2026-01-01T00:05:00Z"}},
+		},
+		{
+			ID:         "fallback_body_id",
+			Provider:   ProviderIntercom,
+			ProviderID: "fallback_body",
+			Subject:    "Different subject",
+			State:      "open",
+			CreatedAt:  "2026-01-02T00:00:00Z",
+			UpdatedAt:  "2026-01-02T01:00:00Z",
+			Parts:      []Part{{ID: "fallback_part_body", ProviderID: "fallback_part_body", Type: "comment", Body: "alpha in body", CreatedAt: "2026-01-02T00:05:00Z", UpdatedAt: "2026-01-02T00:05:00Z"}},
+		},
+	}
+	if _, err := SyncConversations(ctx, dbPath, workspace, conversations); err != nil {
+		t.Fatal(err)
+	}
+	st, err := ckstore.Open(ctx, ckstore.Options{Path: dbPath, Schema: Schema, SchemaVersion: SchemaVersion})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := st.DB().ExecContext(ctx, `drop table conversation_fts`); err != nil {
+		t.Fatal(err)
+	}
+	if err := st.Close(); err != nil {
+		t.Fatal(err)
+	}
+
+	results, err := Search(ctx, dbPath, "alpha", 10)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(results) != 2 {
+		t.Fatalf("results = %#v", results)
+	}
+	if results[0].ProviderID != "fallback_subject" {
+		t.Fatalf("top result = %#v, want subject hit before newer body-only hit", results)
+	}
+	if results[0].Score <= results[1].Score {
+		t.Fatalf("scores were not ordered: %#v", results)
+	}
+}
+
 func contains(values []string, want string) bool {
 	for _, value := range values {
 		if value == want {

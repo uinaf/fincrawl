@@ -295,6 +295,65 @@ func TestSyncUpdatedSinceSearchesAndHydratesWithinLimit(t *testing.T) {
 	}
 }
 
+func TestSyncUpdatedSinceFollowsSearchPagination(t *testing.T) {
+	var searches []string
+	var retrieved []string
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		switch r.URL.Path {
+		case "/conversations/search":
+			var body struct {
+				Pagination map[string]any `json:"pagination"`
+			}
+			if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+				t.Fatal(err)
+			}
+			cursor, _ := body.Pagination["starting_after"].(string)
+			searches = append(searches, cursor)
+			if cursor == "" {
+				w.Write([]byte(`{"conversations":[{"id":"conv_fake_1","updated_at":1770000300}],"pages":{"next":{"starting_after":"cursor_2"}}}`))
+				return
+			}
+			if cursor != "cursor_2" {
+				t.Fatalf("cursor = %q, want cursor_2", cursor)
+			}
+			w.Write([]byte(`{"conversations":[{"id":"conv_fake_2","updated_at":1770000400}],"pages":{"next":{}}}`))
+		case "/conversations/conv_fake_1", "/conversations/conv_fake_2":
+			id := r.URL.Path[len("/conversations/"):]
+			retrieved = append(retrieved, id)
+			w.Write([]byte(`{
+				"id": "` + id + `",
+				"title": "Synthetic paginated thread",
+				"state": "open",
+				"created_at": 1770000000,
+				"updated_at": 1770000300,
+				"conversation_parts": {"conversation_parts": []}
+			}`))
+		default:
+			t.Fatalf("unexpected path = %s", r.URL.Path)
+		}
+	}))
+	defer server.Close()
+	dbPath := filepath.Join(t.TempDir(), "fincrawl.db")
+	s := IntercomSyncer{
+		Client: intercom.Client{BaseURL: server.URL, Token: "fake-token", HTTPClient: server.Client()},
+		Now:    func() time.Time { return time.Unix(1770000000, 0) },
+	}
+	result, err := s.SyncUpdatedSince(context.Background(), dbPath, time.Unix(1769990000, 0), time.Unix(1770000500, 0), 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(searches) != 2 || searches[0] != "" || searches[1] != "cursor_2" {
+		t.Fatalf("search cursors = %#v", searches)
+	}
+	if len(retrieved) != 2 || retrieved[0] != "conv_fake_1" || retrieved[1] != "conv_fake_2" {
+		t.Fatalf("retrieved = %#v", retrieved)
+	}
+	if result.Conversations != 2 {
+		t.Fatalf("result = %#v", result)
+	}
+}
+
 func TestSyncUpdatedSinceReportsWorkspaceForEmptyWindows(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.URL.Path != "/conversations/search" {

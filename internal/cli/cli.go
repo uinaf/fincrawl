@@ -22,6 +22,7 @@ import (
 	"github.com/uinaf/fincrawl/internal/lock"
 	"github.com/uinaf/fincrawl/internal/store"
 	"github.com/uinaf/fincrawl/internal/syncer"
+	"github.com/uinaf/fincrawl/internal/tenantstore"
 )
 
 type app struct {
@@ -31,9 +32,11 @@ type app struct {
 	Status   statusCmd   `cmd:"" help:"Print local archive status."`
 	Sync     syncCmd     `cmd:"" help:"Sync conversations from fixtures or provider APIs."`
 	Search   searchCmd   `cmd:"" help:"Search the local archive."`
+	Show     showCmd     `cmd:"" help:"Show one local conversation."`
 	Archive  archiveCmd  `cmd:"" help:"Write compressed age-encrypted archive output."`
 	Publish  publishCmd  `cmd:"" help:"Publish local SQLite state as an encrypted snapshot."`
 	Import   importCmd   `cmd:"" help:"Import an encrypted snapshot into local SQLite."`
+	Store    storeCmd    `cmd:"" help:"Inspect generic tenant-store contracts."`
 	Guard    guardCmd    `cmd:"" help:"Check commit guardrails."`
 	Version  versionCmd  `cmd:"" help:"Print version information."`
 }
@@ -183,12 +186,12 @@ func (cmd metadataCmd) Run(ctx commandContext) error {
 }
 
 type describeCmd struct {
-	Command string `arg:"" optional:"" help:"Optional command name to describe."`
-	JSON    bool   `help:"Print JSON output." default:"true"`
+	Command []string `arg:"" optional:"" help:"Optional command name to describe."`
+	JSON    bool     `help:"Print JSON output." default:"true"`
 }
 
 func (cmd describeCmd) Run(ctx commandContext) error {
-	schema, err := describeCommands(cmd.Command)
+	schema, err := describeCommands(strings.Join(cmd.Command, " "))
 	if err != nil {
 		return err
 	}
@@ -452,6 +455,36 @@ func (cmd searchCmd) Run(ctx commandContext) error {
 	return writeMaybeJSON(ctx.stdout, cmd.JSON, value)
 }
 
+type showCmd struct {
+	ID        string `arg:"" help:"Conversation local ID or provider ID."`
+	Fields    string `help:"Comma-separated fields to include in JSON/text output."`
+	Parts     bool   `help:"Include sanitized conversation parts."`
+	PartLimit int    `name:"part-limit" help:"Maximum parts when --parts is set." default:"20"`
+	JSON      bool   `help:"Print JSON output." default:"true"`
+}
+
+func (cmd showCmd) Run(ctx commandContext) error {
+	rt, err := config.LoadRuntime()
+	if err != nil {
+		return err
+	}
+	if err := validateConversationFields(cmd.Fields); err != nil {
+		return output.UsageError{Err: err}
+	}
+	detail, err := store.GetConversation(ctx, rt.Config.DBPath, cmd.ID, store.ConversationDetailOptions{
+		IncludeParts: cmd.Parts,
+		PartLimit:    cmd.PartLimit,
+	})
+	if err != nil {
+		return err
+	}
+	value, err := projectConversationDetail(detail, cmd.Fields)
+	if err != nil {
+		return output.UsageError{Err: err}
+	}
+	return writeMaybeJSON(ctx.stdout, cmd.JSON, value)
+}
+
 type archiveCmd struct {
 	Fixture   string `help:"Archive synthetic fixture directory."`
 	Recipient string `help:"Age recipient or SSH public key recipient. Defaults to FINCRAWL_AGE_RECIPIENT."`
@@ -598,6 +631,29 @@ func (cmd importCmd) Run(ctx commandContext) error {
 		return err
 	}
 	return writeMaybeJSON(ctx.stdout, cmd.JSON, importResult{Input: cmd.In, Records: len(records), Sync: result})
+}
+
+type storeCmd struct {
+	Verify storeVerifyCmd `cmd:"" help:"Verify an encrypted tenant-store manifest."`
+}
+
+type storeVerifyCmd struct {
+	Path string `arg:"" optional:"" default:"." help:"Tenant store root containing manifest.json."`
+	JSON bool   `help:"Print JSON output." default:"true"`
+}
+
+func (cmd storeVerifyCmd) Run(ctx commandContext) error {
+	report, err := tenantstore.Verify(ctx, cmd.Path)
+	if err != nil {
+		return err
+	}
+	if err := writeMaybeJSON(ctx.stdout, cmd.JSON, report); err != nil {
+		return err
+	}
+	if !report.OK {
+		return fmt.Errorf("tenant store verification failed with %d finding(s)", len(report.Findings))
+	}
+	return nil
 }
 
 type guardCmd struct {

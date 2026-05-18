@@ -11,10 +11,11 @@ encrypted artifacts directly.
 
 ## Current Boundary
 
-At this stage, `fincrawl` has local sync, local search, guardrails, and
-encrypted archive output. `archive` writes encrypted snapshots from synthetic
-fixtures, while `publish` writes encrypted snapshots from the local SQLite
-archive and `import` hydrates local SQLite from an encrypted snapshot.
+At this stage, `fincrawl` has local sync, local search/show, guardrails,
+encrypted archive output, and a generic tenant-store verifier. `archive` writes
+encrypted snapshots from synthetic fixtures, while `publish` writes encrypted
+snapshots from the local SQLite archive and `import` hydrates local SQLite from
+an encrypted snapshot.
 
 Do not invent remote `subscribe` or push mechanics until `metadata --json` or
 `fincrawl --help` shows they exist.
@@ -25,6 +26,7 @@ For archive writes, validate first:
 fincrawl archive --fixture testdata/synthetic --recipient age1n9zrm0rcxehv7cm55uqw27v9cguz4ev5dtyl7kxkn3vdpvap94ds2gn6rl --out tmp/snapshot.jsonl.zst.age --dry-run
 fincrawl publish --recipient <age-recipient> --out snapshots/local.jsonl.zst.age --dry-run
 fincrawl import --in snapshots/local.jsonl.zst.age --dry-run
+fincrawl store verify <tenant-store-root>
 ```
 
 ## Tenant Store Expectations
@@ -37,11 +39,15 @@ README.md
 AGENTS.md
 manifest.json
 snapshots/*.jsonl.zst.age
-reports/*.json
 ```
 
 It should not contain plaintext JSONL, SQLite DBs, WAL/SHM files, logs,
 screenshots, transcript fixtures, credentials, or local config.
+
+`fincrawl store verify <tenant-store-root>` expects manifest snapshots to point
+at existing `.jsonl.zst.age` or `.tar.zst.age` files with relative paths. It
+rejects plaintext archive artifacts, local databases, runtime state, logs,
+reports, screenshots, and transcripts.
 
 Use tenant-controlled repo docs/config for concrete store paths. The generic
 `fincrawl` skill must stay tenant-neutral.

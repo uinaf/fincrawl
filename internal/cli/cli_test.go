@@ -325,6 +325,71 @@ func TestSearchNDJSONStreamsProjectedResults(t *testing.T) {
 	}
 }
 
+func TestShowConversationDefaultsToNoParts(t *testing.T) {
+	t.Setenv("FINCRAWL_HOME", t.TempDir())
+	var stdout bytes.Buffer
+	var stderr bytes.Buffer
+
+	if err := Run(context.Background(), []string{"sync", "--fixture", filepath.Join("..", "..", "testdata", "synthetic")}, &stdout, &stderr); err != nil {
+		t.Fatal(err)
+	}
+	stdout.Reset()
+	if err := Run(context.Background(), []string{"show", "ic_syn_002", "--json"}, &stdout, &stderr); err != nil {
+		t.Fatal(err)
+	}
+	var result map[string]any
+	if err := json.Unmarshal(stdout.Bytes(), &result); err != nil {
+		t.Fatal(err)
+	}
+	if result["provider_id"] != "ic_syn_002" {
+		t.Fatalf("result = %#v", result)
+	}
+	if _, ok := result["parts"]; ok {
+		t.Fatalf("default show leaked parts: %q", stdout.String())
+	}
+}
+
+func TestShowConversationPartsAreOptIn(t *testing.T) {
+	t.Setenv("FINCRAWL_HOME", t.TempDir())
+	var stdout bytes.Buffer
+	var stderr bytes.Buffer
+
+	if err := Run(context.Background(), []string{"sync", "--fixture", filepath.Join("..", "..", "testdata", "synthetic")}, &stdout, &stderr); err != nil {
+		t.Fatal(err)
+	}
+	stdout.Reset()
+	if err := Run(context.Background(), []string{"show", "ic_syn_002", "--parts", "--part-limit", "1", "--json"}, &stdout, &stderr); err != nil {
+		t.Fatal(err)
+	}
+	var result struct {
+		ProviderID string `json:"provider_id"`
+		Parts      []struct {
+			Body string `json:"body"`
+		} `json:"parts"`
+	}
+	if err := json.Unmarshal(stdout.Bytes(), &result); err != nil {
+		t.Fatal(err)
+	}
+	if result.ProviderID != "ic_syn_002" || len(result.Parts) != 1 {
+		t.Fatalf("result = %#v", result)
+	}
+	if strings.ContainsAny(result.Parts[0].Body, "\x00\n\t") {
+		t.Fatalf("unsafe body = %q", result.Parts[0].Body)
+	}
+}
+
+func TestDescribeStoreVerifyAcceptsCommandWords(t *testing.T) {
+	var stdout bytes.Buffer
+	var stderr bytes.Buffer
+
+	if err := Run(context.Background(), []string{"describe", "store", "verify", "--json"}, &stdout, &stderr); err != nil {
+		t.Fatal(err)
+	}
+	if !bytes.Contains(stdout.Bytes(), []byte(`"store verify"`)) {
+		t.Fatalf("stdout = %q", stdout.String())
+	}
+}
+
 func TestSearchFieldsRejectsUnknownFieldWithoutHits(t *testing.T) {
 	t.Setenv("FINCRAWL_HOME", t.TempDir())
 	var stdout bytes.Buffer
@@ -339,6 +404,51 @@ func TestSearchFieldsRejectsUnknownFieldWithoutHits(t *testing.T) {
 		t.Fatalf("expected usage error, got %v", err)
 	}
 	if stdout.Len() != 0 {
+		t.Fatalf("stdout = %q", stdout.String())
+	}
+}
+
+func TestStoreVerifyAcceptsEncryptedManifest(t *testing.T) {
+	root := t.TempDir()
+	if err := os.MkdirAll(filepath.Join(root, "snapshots"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(root, "snapshots", "synthetic.jsonl.zst.age"), []byte("synthetic encrypted placeholder"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(root, "manifest.json"), []byte(`{"snapshots":[{"path":"snapshots/synthetic.jsonl.zst.age"}]}`), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	var stdout bytes.Buffer
+	var stderr bytes.Buffer
+
+	if err := Run(context.Background(), []string{"store", "verify", root, "--json"}, &stdout, &stderr); err != nil {
+		t.Fatal(err)
+	}
+	if !bytes.Contains(stdout.Bytes(), []byte(`"ok": true`)) {
+		t.Fatalf("stdout = %q", stdout.String())
+	}
+}
+
+func TestStoreVerifyRejectsPlaintextArtifacts(t *testing.T) {
+	root := t.TempDir()
+	if err := os.MkdirAll(filepath.Join(root, "snapshots"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(root, "snapshots", "synthetic.jsonl"), []byte("{}\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(root, "manifest.json"), []byte(`{"snapshots":["snapshots/synthetic.jsonl"]}`), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	var stdout bytes.Buffer
+	var stderr bytes.Buffer
+
+	err := Run(context.Background(), []string{"store", "verify", root, "--json"}, &stdout, &stderr)
+	if err == nil || !strings.Contains(err.Error(), "tenant store verification failed") {
+		t.Fatalf("expected tenant store verification error, got %v", err)
+	}
+	if !bytes.Contains(stdout.Bytes(), []byte(`plaintext archive artifacts`)) {
 		t.Fatalf("stdout = %q", stdout.String())
 	}
 }

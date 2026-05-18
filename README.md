@@ -41,7 +41,7 @@ Try the archive path with synthetic fixtures from a source checkout:
 
 ```bash
 fincrawl sync --fixture testdata/synthetic
-fincrawl search "billing refund" --fields provider_id,subject,updated_at
+fincrawl search "billing refund" --fields provider_id,subject,score,updated_at
 ```
 
 For live Intercom access, use a tenant-authorized read-only token from your
@@ -51,7 +51,8 @@ environment or ignored local env file:
 fincrawl sync --entities
 fincrawl sync --updated-since 2h --limit 50
 fincrawl sync --updated-since 180d --updated-before 90d --limit 0
-fincrawl search "login code expired" --fields provider_id,subject,updated_at
+fincrawl search "login code expired" --fields provider_id,subject,score,updated_at
+fincrawl show <intercom-conversation-id> --fields provider_id,subject,tags,snippet
 ```
 
 Use exact hydration when you already know a conversation ID:
@@ -81,6 +82,12 @@ FINCRAWL_AGE_IDENTITY=<age-identity> \
 Plaintext archive output is local scratch data only. Tenant encrypted snapshots
 still belong in tenant-controlled private storage, not in this repository.
 
+Verify a tenant-controlled encrypted store before importing from it:
+
+```bash
+fincrawl store verify <tenant-store-root>
+```
+
 ## Commands
 
 The CLI defaults to JSON output for agents and automation:
@@ -101,11 +108,13 @@ Common flows:
 | Sync a recent window | `fincrawl sync --updated-since 2h --limit 50` |
 | Backfill a bounded historical window | `fincrawl sync --updated-since 180d --updated-before 90d --limit 0` |
 | Hydrate one conversation | `fincrawl sync --conversation <id>` |
-| Search local archive | `fincrawl search "<query>" --fields provider_id,subject,updated_at` |
+| Search local archive | `fincrawl search "<query>" --fields provider_id,subject,score,updated_at` |
+| Show one conversation | `fincrawl show <id> --fields provider_id,subject,tags,snippet` |
 | Filter search results | `fincrawl search "<query>" --state open --tag billing` |
 | Find Fin-status matches | `fincrawl search "<query>" --fin-status resolved` |
 | Export encrypted snapshot | `fincrawl publish --recipient <recipient> --out snapshots/local.jsonl.zst.age` |
 | Import encrypted snapshot | `fincrawl import --identity <identity> --in snapshots/local.jsonl.zst.age` |
+| Verify an encrypted tenant store | `fincrawl store verify <path>` |
 | Check repo guardrails | `fincrawl guard --json` |
 
 ## Docs

@@ -24,11 +24,13 @@ fincrawl sync --updated-since 180d --updated-before 90d --limit 0
 fincrawl sync --resume
 fincrawl sync --conversation <id>
 fincrawl search "billing refund" --json
+fincrawl show <id> --fields provider_id,subject,tags,snippet
 fincrawl search "billing refund" --state open --tag billing
 fincrawl search "login" --fin-status resolved
 fincrawl archive --fixture testdata/synthetic --recipient <age-recipient> --out tmp/archive.jsonl.zst.age
 fincrawl publish --recipient <age-recipient> --out snapshots/local.jsonl.zst.age
 fincrawl import --identity <age-identity> --in snapshots/local.jsonl.zst.age
+fincrawl store verify <tenant-store-root>
 fincrawl guard --json
 ```
 
@@ -46,6 +48,7 @@ internal/control/      machine-readable command descriptions and safe examples
 internal/intercom/     provider API client boundary
 internal/syncer/       fixture, entity, exact, and tail sync orchestration
 internal/store/        SQLite schema, migrations, export, search, sync state
+internal/tenantstore/  generic encrypted tenant-store manifest checks
 internal/archive/      canonical JSONL, zstd compression, age encryption
 internal/guard/        preflight repository leak checks
 internal/lock/         local write lock
@@ -72,7 +75,9 @@ and small:
 - `raw_blobs`
 - `conversation_fts`
 
-Search uses FTS with sanitized queries and a fallback path where needed. Raw
+Search uses FTS with sanitized queries, result scores, compact field masks, and
+a fallback path where needed. `show` resolves either local IDs or provider IDs;
+conversation parts are opt-in and text snippets are sanitized before output. Raw
 provider JSON is retained locally for replay and migration debugging, but it is
 tenant data and must not be committed to this repo.
 
@@ -99,11 +104,17 @@ age encryption. Supported artifact shape:
 
 ```text
 *.jsonl.zst.age
+*.tar.zst.age
 ```
 
 Plaintext archives, databases, logs, snapshots, screenshots, reports, and
 transcripts are ignored and blocked by `fincrawl guard`. Encrypted tenant
 snapshots are still tenant data and belong outside this repo.
+
+Tenant stores can be checked locally with `fincrawl store verify <path>`. The
+verifier reads `manifest.json`, requires manifest snapshots to point at existing
+compressed age-encrypted artifacts, and rejects plaintext archives, SQLite
+stores, runtime state, logs, reports, screenshots, and transcripts.
 
 ## Agent Use
 

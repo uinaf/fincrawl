@@ -165,9 +165,29 @@ func describeCommands(command string) (cliSchema, error) {
 					"fincrawl search \"billing refund\" --limit 10",
 					"fincrawl search \"billing refund\" --state open --tag billing",
 					"fincrawl search \"login\" --fin-status resolved",
-					"fincrawl search \"billing refund\" --fields provider_id,subject,updated_at --ndjson",
+					"fincrawl search \"billing refund\" --fields provider_id,subject,score,updated_at --ndjson",
 				},
-				Notes: []string{"Allowed fields: id, provider_id, subject, state, assignee, rating, fin_status, participants, tags, updated_at, snippet."},
+				Notes: []string{"Allowed fields: id, provider_id, subject, state, assignee, rating, fin_status, participants, tags, updated_at, snippet, score."},
+			},
+			"show": {
+				Name:    "show",
+				Summary: "Show one local conversation by local ID or provider ID.",
+				JSON:    true,
+				Args: []paramSchema{
+					{Name: "id", Type: "conversation-id|provider-id", Required: true, Help: "Conversation local ID or provider ID."},
+				},
+				Flags: []paramSchema{
+					{Name: "fields", Type: "field-list", Help: "Comma-separated fields to include in output."},
+					{Name: "parts", Type: "bool", Help: "Include sanitized conversation parts."},
+					{Name: "part-limit", Type: "int", Default: "20", Help: "Maximum parts when --parts is set."},
+					{Name: "json", Type: "bool", Default: "true", Help: "Print JSON output."},
+				},
+				Examples: []string{
+					"fincrawl show <provider-conversation-id>",
+					"fincrawl show <provider-conversation-id> --fields provider_id,subject,tags,snippet",
+					"fincrawl show <provider-conversation-id> --parts --part-limit 5",
+				},
+				Notes: []string{"Allowed fields: id, provider_id, subject, state, assignee, rating, fin_status, participants, tags, created_at, updated_at, snippet, parts.", "Parts are opt-in and sanitized before output."},
 			},
 			"archive": {
 				Name:    "archive",
@@ -218,6 +238,22 @@ func describeCommands(command string) (cliSchema, error) {
 					"Input paths must be relative, stay under the current working directory, and end in .jsonl.zst.age.",
 				},
 			},
+			"store verify": {
+				Name:    "store verify",
+				Summary: "Verify a generic encrypted tenant-store manifest and artifact boundary.",
+				JSON:    true,
+				Args: []paramSchema{
+					{Name: "path", Type: "path", Default: ".", Help: "Tenant store root containing manifest.json."},
+				},
+				Flags: []paramSchema{
+					{Name: "json", Type: "bool", Default: "true", Help: "Print JSON output."},
+				},
+				Examples: []string{"fincrawl store verify .", "fincrawl store verify ../tenant-store --json"},
+				Notes: []string{
+					"Manifest snapshots must reference existing .jsonl.zst.age or .tar.zst.age files with relative paths.",
+					"Plaintext archives, local databases, runtime state, logs, reports, screenshots, and transcripts are rejected.",
+				},
+			},
 			"guard": {
 				Name:    "guard",
 				Summary: "Check commit guardrails for tenant data, plaintext archives, and secret-like values.",
@@ -240,6 +276,9 @@ func describeCommands(command string) (cliSchema, error) {
 	}
 	if command == "" {
 		return schema, nil
+	}
+	if command == "store" {
+		command = "store verify"
 	}
 	described, ok := schema.Commands[command]
 	if !ok {
@@ -547,8 +586,85 @@ func searchResultField(result store.SearchResult, name string) (any, error) {
 		return result.UpdatedAt, nil
 	case "snippet":
 		return result.Snippet, nil
+	case "score":
+		return result.Score, nil
 	default:
 		return nil, fmt.Errorf("unknown search field %q", name)
+	}
+}
+
+func projectConversationDetail(detail store.ConversationDetail, fields string) (any, error) {
+	fields = strings.TrimSpace(fields)
+	if fields == "" {
+		return detail, nil
+	}
+	names, err := parseConversationFields(fields)
+	if err != nil {
+		return nil, err
+	}
+	projected := make(map[string]any, len(names))
+	for _, name := range names {
+		value, _ := conversationDetailField(detail, name)
+		projected[name] = value
+	}
+	return projected, nil
+}
+
+func validateConversationFields(fields string) error {
+	fields = strings.TrimSpace(fields)
+	if fields == "" {
+		return nil
+	}
+	_, err := parseConversationFields(fields)
+	return err
+}
+
+func parseConversationFields(fields string) ([]string, error) {
+	rawNames := strings.Split(fields, ",")
+	names := make([]string, 0, len(rawNames))
+	for _, name := range rawNames {
+		name = strings.TrimSpace(name)
+		if name == "" {
+			return nil, errors.New("--fields contains an empty field")
+		}
+		if _, err := conversationDetailField(store.ConversationDetail{}, name); err != nil {
+			return nil, err
+		}
+		names = append(names, name)
+	}
+	return names, nil
+}
+
+func conversationDetailField(detail store.ConversationDetail, name string) (any, error) {
+	switch name {
+	case "id":
+		return detail.ID, nil
+	case "provider_id":
+		return detail.ProviderID, nil
+	case "subject":
+		return detail.Subject, nil
+	case "state":
+		return detail.State, nil
+	case "assignee":
+		return detail.Assignee, nil
+	case "rating":
+		return detail.Rating, nil
+	case "fin_status":
+		return detail.FinStatus, nil
+	case "participants":
+		return detail.Participants, nil
+	case "tags":
+		return detail.Tags, nil
+	case "created_at":
+		return detail.CreatedAt, nil
+	case "updated_at":
+		return detail.UpdatedAt, nil
+	case "snippet":
+		return detail.Snippet, nil
+	case "parts":
+		return detail.Parts, nil
+	default:
+		return nil, fmt.Errorf("unknown show field %q", name)
 	}
 }
 
