@@ -156,6 +156,14 @@ tenant-data contribution boundary.
 
 Report vulnerabilities privately. See [Security](SECURITY.md).
 
+## Acknowledgements
+
+Built on [`openclaw/crawlkit`](https://github.com/openclaw/crawlkit) for
+reusable local-crawler mechanics (config, state, snapshot, mirror,
+SQLite plumbing). The agent-DX, release-pipeline, and tenant-store
+conventions are shared across the [`openclaw`](https://github.com/openclaw)
+crawler family.
+
 ## License
 
 MIT. See [License](LICENSE).
