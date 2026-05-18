@@ -42,7 +42,13 @@ fincrawl show <provider-conversation-id> --parts --part-limit 5
 ```
 
 3. If local data is empty or stale, ask whether live Intercom refresh is allowed
-unless the user already requested live sync.
+unless the user already requested live sync. If the user gives you a local
+tenant-store path, verify and dry-run the local store import first:
+
+```bash
+fincrawl store verify <tenant-store-root>
+fincrawl subscribe <tenant-store-root> --dry-run
+```
 
 4. Prefer narrow live refreshes:
 
@@ -68,6 +74,8 @@ issues, docs, logs, or fixtures.
 - Use `publish --dry-run` before writing encrypted snapshots and
   `import --dry-run` before hydrating local SQLite from a snapshot.
 - Use `store verify <path>` before trusting a tenant-controlled encrypted store.
+- Use `subscribe <path> --dry-run` before importing snapshots from a local
+  tenant store. This is a local filesystem flow, not a remote pull.
 - Treat transcript bodies, contact names, ratings, tags, and raw provider JSON as
   tenant-private.
 - Do not run broad crawling unless explicitly asked.

@@ -37,6 +37,7 @@ FINCRAWL_HOME="$home_dir" go run ./cmd/fincrawl archive \
 test -s "$archive_out"
 printf '{"snapshots":[{"path":"snapshots/fincrawl-smoke.jsonl.zst.age"}]}\n' >"$store_dir/manifest.json"
 go run ./cmd/fincrawl store verify "$store_dir" --json >/dev/null
+FINCRAWL_HOME="$home_dir" go run ./cmd/fincrawl subscribe "$store_dir" --dry-run --json >/dev/null
 FINCRAWL_HOME="$home_dir" go run ./cmd/fincrawl status --json >/dev/null
 FINCRAWL_HOME="$home_dir" go run ./cmd/fincrawl metadata --json >/dev/null
 

@@ -82,4 +82,6 @@ write transcript-derived text into committed files.
 ## Limitations
 
 If search misses, do not assume the issue never happened. The archive may be
-stale, incomplete, or not hydrated. Use live sync only with user authorization.
+stale, incomplete, or not hydrated. If the user has a local tenant store, use
+`fincrawl store verify <path>` and `fincrawl subscribe <path> --dry-run` before
+importing its encrypted snapshots. Use live sync only with user authorization.

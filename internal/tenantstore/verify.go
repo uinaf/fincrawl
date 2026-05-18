@@ -23,6 +23,14 @@ type Snapshot struct {
 	Records   int    `json:"records,omitempty"`
 }
 
+type SnapshotFile struct {
+	Path      string `json:"path"`
+	Kind      string `json:"kind,omitempty"`
+	CreatedAt string `json:"created_at,omitempty"`
+	Records   int    `json:"records,omitempty"`
+	FullPath  string `json:"-"`
+}
+
 type Report struct {
 	OK        bool      `json:"ok"`
 	Root      string    `json:"root"`
@@ -84,6 +92,32 @@ func Verify(ctx context.Context, root string) (Report, error) {
 	}
 	report.OK = len(report.Findings) == 0
 	return report, nil
+}
+
+func VerifiedSnapshots(ctx context.Context, root string) (Report, []SnapshotFile, error) {
+	report, err := Verify(ctx, root)
+	if err != nil {
+		return Report{}, nil, err
+	}
+	if !report.OK {
+		return report, nil, nil
+	}
+	manifest, err := readManifest(report.Manifest)
+	if err != nil {
+		return Report{}, nil, err
+	}
+	files := make([]SnapshotFile, 0, len(manifest.Snapshots))
+	for _, snapshot := range manifest.Snapshots {
+		clean := filepath.Clean(strings.TrimSpace(snapshot.Path))
+		files = append(files, SnapshotFile{
+			Path:      clean,
+			Kind:      snapshot.Kind,
+			CreatedAt: snapshot.CreatedAt,
+			Records:   snapshot.Records,
+			FullPath:  filepath.Join(report.Root, clean),
+		})
+	}
+	return report, files, nil
 }
 
 func readManifest(path string) (Manifest, error) {

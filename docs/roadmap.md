@@ -25,6 +25,8 @@ this repo.
 - zstd + age encrypted `archive`, `publish`, and `import` flows.
 - Generic `store verify` checks for tenant-controlled encrypted snapshot
   manifests.
+- Local one-shot `subscribe` imports `.jsonl.zst.age` snapshots from a verified
+  tenant store path.
 - Repository guardrails for plaintext archives, generated artifacts, secret
   patterns, provider URLs, and transcript-like files.
 - Agent-facing skill guidance under `skills/fincrawl/`.
@@ -32,12 +34,12 @@ this repo.
 
 ## Next
 
-- Add a read-only subscriber flow that can pull/import a local tenant store
-  path without adding remote push or schedule mechanics.
 - Broaden exact hydration/search ergonomics around known provider URLs while
   keeping provider IDs path-safe.
 - Add more sync torture coverage around interrupted multi-page windows and
   repeated transient failures.
+- Add persisted local subscription metadata only if repeated local store imports
+  need stale checks or operator reminders.
 
 ## Later
 

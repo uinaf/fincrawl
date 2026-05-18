@@ -26,19 +26,20 @@ import (
 )
 
 type app struct {
-	Doctor   doctorCmd   `cmd:"" help:"Check local configuration."`
-	Metadata metadataCmd `cmd:"" help:"Print machine-readable metadata."`
-	Describe describeCmd `cmd:"" help:"Print machine-readable command schemas."`
-	Status   statusCmd   `cmd:"" help:"Print local archive status."`
-	Sync     syncCmd     `cmd:"" help:"Sync conversations from fixtures or provider APIs."`
-	Search   searchCmd   `cmd:"" help:"Search the local archive."`
-	Show     showCmd     `cmd:"" help:"Show one local conversation."`
-	Archive  archiveCmd  `cmd:"" help:"Write compressed age-encrypted archive output."`
-	Publish  publishCmd  `cmd:"" help:"Publish local SQLite state as an encrypted snapshot."`
-	Import   importCmd   `cmd:"" help:"Import an encrypted snapshot into local SQLite."`
-	Store    storeCmd    `cmd:"" help:"Inspect generic tenant-store contracts."`
-	Guard    guardCmd    `cmd:"" help:"Check commit guardrails."`
-	Version  versionCmd  `cmd:"" help:"Print version information."`
+	Doctor    doctorCmd    `cmd:"" help:"Check local configuration."`
+	Metadata  metadataCmd  `cmd:"" help:"Print machine-readable metadata."`
+	Describe  describeCmd  `cmd:"" help:"Print machine-readable command schemas."`
+	Status    statusCmd    `cmd:"" help:"Print local archive status."`
+	Sync      syncCmd      `cmd:"" help:"Sync conversations from fixtures or provider APIs."`
+	Search    searchCmd    `cmd:"" help:"Search the local archive."`
+	Show      showCmd      `cmd:"" help:"Show one local conversation."`
+	Archive   archiveCmd   `cmd:"" help:"Write compressed age-encrypted archive output."`
+	Publish   publishCmd   `cmd:"" help:"Publish local SQLite state as an encrypted snapshot."`
+	Import    importCmd    `cmd:"" help:"Import an encrypted snapshot into local SQLite."`
+	Subscribe subscribeCmd `cmd:"" help:"Import snapshots from a local encrypted tenant store."`
+	Store     storeCmd     `cmd:"" help:"Inspect generic tenant-store contracts."`
+	Guard     guardCmd     `cmd:"" help:"Check commit guardrails."`
+	Version   versionCmd   `cmd:"" help:"Print version information."`
 }
 
 type commandContext struct {
@@ -631,6 +632,117 @@ func (cmd importCmd) Run(ctx commandContext) error {
 		return err
 	}
 	return writeMaybeJSON(ctx.stdout, cmd.JSON, importResult{Input: cmd.In, Records: len(records), Sync: result})
+}
+
+type subscribeCmd struct {
+	Store    string `arg:"" help:"Local tenant store root containing manifest.json."`
+	Identity string `help:"Age identity. Defaults to FINCRAWL_AGE_IDENTITY."`
+	DryRun   bool   `name:"dry-run" help:"Verify and list planned imports without writing local state."`
+	JSON     bool   `help:"Print JSON output." default:"true"`
+}
+
+type subscribeResult struct {
+	Store             string              `json:"store"`
+	DryRun            bool                `json:"dry_run,omitempty"`
+	Snapshots         []subscribeSnapshot `json:"snapshots"`
+	ImportedSnapshots int                 `json:"imported_snapshots"`
+	Records           int                 `json:"records"`
+	Sync              *store.SyncResult   `json:"sync,omitempty"`
+}
+
+type subscribeSnapshot struct {
+	Path     string `json:"path"`
+	Records  int    `json:"records,omitempty"`
+	Imported bool   `json:"imported,omitempty"`
+}
+
+type pendingSnapshotImport struct {
+	snapshot tenantstore.SnapshotFile
+	records  []archive.Record
+	fixture  store.Fixture
+}
+
+func (cmd subscribeCmd) Run(ctx commandContext) error {
+	rt, err := config.LoadRuntime()
+	if err != nil {
+		return err
+	}
+	report, snapshots, err := tenantstore.VerifiedSnapshots(ctx, cmd.Store)
+	if err != nil {
+		return err
+	}
+	if !report.OK {
+		if writeErr := writeMaybeJSON(ctx.stdout, cmd.JSON, report); writeErr != nil {
+			return writeErr
+		}
+		return fmt.Errorf("tenant store verification failed with %d finding(s)", len(report.Findings))
+	}
+	result := subscribeResult{Store: report.Root, DryRun: cmd.DryRun, Snapshots: make([]subscribeSnapshot, 0, len(snapshots))}
+	for _, snapshot := range snapshots {
+		if !strings.HasSuffix(snapshot.Path, ".jsonl.zst.age") {
+			return fmt.Errorf("subscribe currently imports only .jsonl.zst.age snapshots: %s", snapshot.Path)
+		}
+		result.Snapshots = append(result.Snapshots, subscribeSnapshot{Path: snapshot.Path, Records: snapshot.Records})
+		result.Records += snapshot.Records
+	}
+	if cmd.DryRun {
+		return writeMaybeJSON(ctx.stdout, cmd.JSON, result)
+	}
+	identity := strings.TrimSpace(cmd.Identity)
+	if identity == "" {
+		identity = config.AgeIdentity()
+	}
+	pending := make([]pendingSnapshotImport, 0, len(snapshots))
+	totalRecords := 0
+	for _, snapshot := range snapshots {
+		records, err := archive.ReadEncryptedJSONL(snapshot.FullPath, identity)
+		if err != nil {
+			return fmt.Errorf("read tenant store snapshot %s: %w", snapshot.Path, err)
+		}
+		fixture, err := archive.RecordsFixture(records)
+		if err != nil {
+			return fmt.Errorf("decode tenant store snapshot %s: %w", snapshot.Path, err)
+		}
+		pending = append(pending, pendingSnapshotImport{snapshot: snapshot, records: records, fixture: fixture})
+		totalRecords += len(records)
+	}
+	if err := config.EnsureDirs(rt); err != nil {
+		return err
+	}
+	lck, err := lock.Acquire(rt.Config.DBPath)
+	if err != nil {
+		return err
+	}
+	defer lck.Release()
+	aggregate := store.SyncResult{}
+	for index, item := range pending {
+		syncResult, err := store.SyncFixture(ctx, rt.Config.DBPath, item.fixture)
+		if err != nil {
+			return fmt.Errorf("import tenant store snapshot %s: %w", item.snapshot.Path, err)
+		}
+		mergeSyncResult(&aggregate, syncResult)
+		result.Snapshots[index].Records = len(item.records)
+		result.Snapshots[index].Imported = true
+		result.Snapshots[index].Path = item.snapshot.Path
+		result.ImportedSnapshots++
+	}
+	result.Records = totalRecords
+	result.Sync = &aggregate
+	return writeMaybeJSON(ctx.stdout, cmd.JSON, result)
+}
+
+func mergeSyncResult(dst *store.SyncResult, src store.SyncResult) {
+	if dst.WorkspaceID == "" {
+		dst.WorkspaceID = src.WorkspaceID
+	}
+	dst.Conversations += src.Conversations
+	dst.ConversationParts += src.ConversationParts
+	dst.Admins += src.Admins
+	dst.Teams += src.Teams
+	dst.Tags += src.Tags
+	dst.Contacts += src.Contacts
+	dst.RawBlobs += src.RawBlobs
+	dst.Warnings = append(dst.Warnings, src.Warnings...)
 }
 
 type storeCmd struct {

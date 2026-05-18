@@ -79,6 +79,15 @@ FINCRAWL_AGE_IDENTITY=<age-identity> \
   fincrawl import --in snapshots/local.jsonl.zst.age --dry-run
 ```
 
+For a local tenant-controlled store with a `manifest.json`, verify and import
+the listed encrypted JSONL snapshots in one step:
+
+```bash
+fincrawl store verify <tenant-store-root>
+FINCRAWL_AGE_IDENTITY=<age-identity> \
+  fincrawl subscribe <tenant-store-root> --dry-run
+```
+
 Plaintext archive output is local scratch data only. Tenant encrypted snapshots
 still belong in tenant-controlled private storage, not in this repository.
 
@@ -115,6 +124,7 @@ Common flows:
 | Export encrypted snapshot | `fincrawl publish --recipient <recipient> --out snapshots/local.jsonl.zst.age` |
 | Import encrypted snapshot | `fincrawl import --identity <identity> --in snapshots/local.jsonl.zst.age` |
 | Verify an encrypted tenant store | `fincrawl store verify <path>` |
+| Import a local tenant store | `fincrawl subscribe <path> --identity <identity>` |
 | Check repo guardrails | `fincrawl guard --json` |
 
 ## Docs

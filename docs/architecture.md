@@ -31,6 +31,7 @@ fincrawl archive --fixture testdata/synthetic --recipient <age-recipient> --out 
 fincrawl publish --recipient <age-recipient> --out snapshots/local.jsonl.zst.age
 fincrawl import --identity <age-identity> --in snapshots/local.jsonl.zst.age
 fincrawl store verify <tenant-store-root>
+fincrawl subscribe <tenant-store-root> --dry-run
 fincrawl guard --json
 ```
 
@@ -115,6 +116,11 @@ Tenant stores can be checked locally with `fincrawl store verify <path>`. The
 verifier reads `manifest.json`, requires manifest snapshots to point at existing
 compressed age-encrypted artifacts, and rejects plaintext archives, SQLite
 stores, runtime state, logs, reports, screenshots, and transcripts.
+
+`fincrawl subscribe <path>` is a local one-shot subscriber flow. It verifies a
+tenant-controlled store, reads the manifest, and imports listed
+`.jsonl.zst.age` snapshots into local SQLite. It does not clone, pull, push,
+schedule jobs, or persist tenant-specific subscription config.
 
 ## Agent Use
 

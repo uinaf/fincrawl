@@ -238,6 +238,25 @@ func describeCommands(command string) (cliSchema, error) {
 					"Input paths must be relative, stay under the current working directory, and end in .jsonl.zst.age.",
 				},
 			},
+			"subscribe": {
+				Name:    "subscribe",
+				Summary: "Import snapshots from a local encrypted tenant store.",
+				Mutates: true,
+				JSON:    true,
+				Args: []paramSchema{
+					{Name: "store", Type: "path", Required: true, Help: "Local tenant store root containing manifest.json."},
+				},
+				Flags: []paramSchema{
+					{Name: "identity", Type: "age-identity", Help: "Age identity. Defaults to FINCRAWL_AGE_IDENTITY."},
+					{Name: "dry-run", Type: "bool", Help: "Verify and list planned imports without writing local state."},
+					{Name: "json", Type: "bool", Default: "true", Help: "Print JSON output."},
+				},
+				Examples: []string{"fincrawl subscribe ../tenant-store --dry-run", "fincrawl subscribe ../tenant-store --identity AGE-SECRET-KEY-..."},
+				Notes: []string{
+					"Local filesystem stores only; remote clone, pull, and scheduling are out of scope.",
+					"The tenant store is verified before import, and this command currently imports .jsonl.zst.age snapshots.",
+				},
+			},
 			"store verify": {
 				Name:    "store verify",
 				Summary: "Verify a generic encrypted tenant-store manifest and artifact boundary.",

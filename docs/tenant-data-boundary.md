@@ -87,10 +87,17 @@ existing compressed age-encrypted snapshots with relative paths and rejects
 plaintext archives, local databases, runtime state, logs, reports, screenshots,
 and transcripts.
 
+Use `fincrawl subscribe <tenant-store-root>` only for local one-shot imports from
+a tenant-controlled store. The command verifies the store before import and
+hydrates local SQLite from encrypted JSONL snapshots; it does not make the
+generic repo a home for tenant store state, schedules, or remote credentials.
+
 Encryption recipients may be native `age1...` recipients or SSH public keys
 accepted by age. Private age identities and private SSH keys must stay outside
-the repo. Import dry-runs still need a private decrypt identity because they
-validate encrypted record contents and counts.
+the repo. `import --dry-run` still needs a private decrypt identity because it
+validates encrypted record contents and counts. `subscribe --dry-run` verifies
+the store manifest and planned snapshots without decrypting or mutating local
+SQLite.
 
 ## Fixture Rule
 

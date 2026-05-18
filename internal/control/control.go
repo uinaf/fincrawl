@@ -43,20 +43,21 @@ func Manifest(rt config.Runtime) ckcontrol.Manifest {
 		DefaultShare:    rt.Config.ShareDir,
 	}
 	manifest.Commands = map[string]ckcontrol.Command{
-		"doctor":   {Title: "Check local configuration", Argv: []string{"fincrawl", "doctor", "--offline"}, JSON: true},
-		"metadata": {Title: "Print machine-readable metadata", Argv: []string{"fincrawl", "metadata"}, JSON: true},
-		"describe": {Title: "Print command schemas", Argv: []string{"fincrawl", "describe"}, JSON: true},
-		"status":   {Title: "Print archive status", Argv: []string{"fincrawl", "status"}, JSON: true},
-		"sync":     {Title: "Sync conversations", Argv: []string{"fincrawl", "sync", "--fixture", "testdata/synthetic", "--dry-run"}, JSON: true, Mutates: true},
-		"search":   {Title: "Search local archive", Argv: []string{"fincrawl", "search", "query", "--fields", "provider_id,subject,score,updated_at"}, JSON: true},
-		"show":     {Title: "Show one local conversation", Argv: []string{"fincrawl", "show", "provider-conversation-id", "--fields", "provider_id,subject,tags,snippet"}, JSON: true},
-		"archive":  {Title: "Write encrypted archive", Argv: []string{"fincrawl", "archive", "--fixture", "testdata/synthetic", "--recipient", syntheticArchiveRecipient, "--out", "tmp/fincrawl-smoke.jsonl.zst.age", "--dry-run"}, JSON: true, Mutates: true},
-		"publish":  {Title: "Publish encrypted snapshot", Argv: []string{"fincrawl", "publish", "--recipient", syntheticArchiveRecipient, "--out", "tmp/fincrawl-publish.jsonl.zst.age", "--dry-run"}, JSON: true, Mutates: true},
-		"import":   {Title: "Import encrypted snapshot", Argv: []string{"fincrawl", "import", "--in", "tmp/fincrawl-publish.jsonl.zst.age", "--dry-run"}, JSON: true, Mutates: true},
-		"store":    {Title: "Verify encrypted tenant store", Argv: []string{"fincrawl", "store", "verify", "."}, JSON: true},
-		"guard":    {Title: "Check commit guardrails", Argv: []string{"fincrawl", "guard"}, JSON: true},
+		"doctor":    {Title: "Check local configuration", Argv: []string{"fincrawl", "doctor", "--offline"}, JSON: true},
+		"metadata":  {Title: "Print machine-readable metadata", Argv: []string{"fincrawl", "metadata"}, JSON: true},
+		"describe":  {Title: "Print command schemas", Argv: []string{"fincrawl", "describe"}, JSON: true},
+		"status":    {Title: "Print archive status", Argv: []string{"fincrawl", "status"}, JSON: true},
+		"sync":      {Title: "Sync conversations", Argv: []string{"fincrawl", "sync", "--fixture", "testdata/synthetic", "--dry-run"}, JSON: true, Mutates: true},
+		"search":    {Title: "Search local archive", Argv: []string{"fincrawl", "search", "query", "--fields", "provider_id,subject,score,updated_at"}, JSON: true},
+		"show":      {Title: "Show one local conversation", Argv: []string{"fincrawl", "show", "provider-conversation-id", "--fields", "provider_id,subject,tags,snippet"}, JSON: true},
+		"archive":   {Title: "Write encrypted archive", Argv: []string{"fincrawl", "archive", "--fixture", "testdata/synthetic", "--recipient", syntheticArchiveRecipient, "--out", "tmp/fincrawl-smoke.jsonl.zst.age", "--dry-run"}, JSON: true, Mutates: true},
+		"publish":   {Title: "Publish encrypted snapshot", Argv: []string{"fincrawl", "publish", "--recipient", syntheticArchiveRecipient, "--out", "tmp/fincrawl-publish.jsonl.zst.age", "--dry-run"}, JSON: true, Mutates: true},
+		"import":    {Title: "Import encrypted snapshot", Argv: []string{"fincrawl", "import", "--in", "tmp/fincrawl-publish.jsonl.zst.age", "--dry-run"}, JSON: true, Mutates: true},
+		"subscribe": {Title: "Import local tenant store snapshots", Argv: []string{"fincrawl", "subscribe", "tenant-store", "--dry-run"}, JSON: true, Mutates: true},
+		"store":     {Title: "Verify encrypted tenant store", Argv: []string{"fincrawl", "store", "verify", "."}, JSON: true},
+		"guard":     {Title: "Check commit guardrails", Argv: []string{"fincrawl", "guard"}, JSON: true},
 	}
-	manifest.Capabilities = []string{"intercom-api-sync", "sqlite-fts-search", "conversation-show", "zstd-age-archive", "encrypted-snapshot-import", "tenant-store-verify", "synthetic-fixtures"}
+	manifest.Capabilities = []string{"intercom-api-sync", "sqlite-fts-search", "conversation-show", "zstd-age-archive", "encrypted-snapshot-import", "local-tenant-store-subscribe", "tenant-store-verify", "synthetic-fixtures"}
 	manifest.Privacy = ckcontrol.Privacy{
 		ContainsPrivateMessages: true,
 		ExportsSecrets:          false,
