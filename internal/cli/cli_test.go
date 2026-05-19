@@ -1863,3 +1863,78 @@ func TestArchiveUsesRecipientFromEnv(t *testing.T) {
 		t.Fatalf("archive env-recipient: %v", err)
 	}
 }
+
+func TestCommandsErrorWhenFINCRAWLHomeIsAFile(t *testing.T) {
+	// Pointing FINCRAWL_HOME at a regular file causes config.LoadRuntime to fail,
+	// which exercises the early error returns in every command's Run().
+	home := filepath.Join(t.TempDir(), "not-a-dir")
+	if err := os.WriteFile(home, []byte("file-not-dir"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("FINCRAWL_HOME", home)
+	for _, cmd := range [][]string{
+		{"doctor", "--offline", "--json"},
+		{"metadata", "--json"},
+		{"status", "--json"},
+		{"sync", "--fixture", filepath.Join(repoRoot(t), "testdata", "synthetic"), "--dry-run", "--json"},
+		{"archive", "--fixture", filepath.Join(repoRoot(t), "testdata", "synthetic"), "--recipient", "age1n9zrm0rcxehv7cm55uqw27v9cguz4ev5dtyl7kxkn3vdpvap94ds2gn6rl", "--out", "tmp/x.jsonl.zst.age", "--dry-run", "--json"},
+		{"publish", "--recipient", "age1n9zrm0rcxehv7cm55uqw27v9cguz4ev5dtyl7kxkn3vdpvap94ds2gn6rl", "--out", "tmp/x.jsonl.zst.age", "--dry-run", "--json"},
+		{"import", "--identity", "AGE-SECRET-KEY-1JUNK", "--in", "tmp/x.jsonl.zst.age", "--json"},
+		{"subscribe", t.TempDir(), "--dry-run", "--json"},
+	} {
+		var stdout, stderr bytes.Buffer
+		if err := Run(context.Background(), cmd, &stdout, &stderr); err == nil {
+			t.Fatalf("%v: expected error", cmd)
+		}
+	}
+}
+
+func TestSearchHonoursStateAndTagFilters(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("FINCRAWL_HOME", home)
+	t.Chdir(home)
+	var stdout, stderr bytes.Buffer
+	if err := Run(context.Background(), []string{"sync", "--fixture", filepath.Join(repoRoot(t), "testdata", "synthetic"), "--json"}, &stdout, &stderr); err != nil {
+		t.Fatal(err)
+	}
+	stdout.Reset()
+	if err := Run(context.Background(), []string{"search", "Morgan", "--state", "open", "--json"}, &stdout, &stderr); err != nil {
+		t.Fatalf("search state: %v", err)
+	}
+	stdout.Reset()
+	if err := Run(context.Background(), []string{"search", "Morgan", "--tag", "billing", "--json"}, &stdout, &stderr); err != nil {
+		t.Fatalf("search tag: %v", err)
+	}
+	stdout.Reset()
+	if err := Run(context.Background(), []string{"search", "billing", "--fin-status", "resolved", "--json"}, &stdout, &stderr); err != nil {
+		t.Fatalf("search fin-status: %v", err)
+	}
+}
+
+func TestSubscribeWithBadStoreFails(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("FINCRAWL_HOME", home)
+	t.Chdir(home)
+	// store dir without manifest -> Verify fails
+	bad := filepath.Join(home, "bad-store")
+	if err := os.Mkdir(bad, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	var stdout, stderr bytes.Buffer
+	if err := Run(context.Background(), []string{"subscribe", bad, "--dry-run", "--json"}, &stdout, &stderr); err == nil {
+		t.Fatalf("expected subscribe to fail with bad store")
+	}
+}
+
+func TestStoreVerifyJSONOutput(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("FINCRAWL_HOME", home)
+	bad := filepath.Join(home, "bad-store")
+	if err := os.Mkdir(bad, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	var stdout, stderr bytes.Buffer
+	if err := Run(context.Background(), []string{"store", "verify", bad, "--json"}, &stdout, &stderr); err == nil {
+		t.Fatalf("expected store verify to fail without manifest")
+	}
+}
