@@ -550,3 +550,49 @@ func TestResetDelayHonorsResetHeader(t *testing.T) {
 		t.Fatalf("bad reset delay = %s", d)
 	}
 }
+
+func TestRetrieveConversationPropagatesAPIError(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		http.Error(w, "not found", http.StatusNotFound)
+	}))
+	defer server.Close()
+	client := Client{BaseURL: server.URL, HTTPClient: server.Client()}
+	if _, err := client.RetrieveConversation(context.Background(), "missing"); err == nil {
+		t.Fatalf("expected error")
+	}
+}
+
+func TestRetrieveConversationFailsOnBadJSON(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		w.Write([]byte(`not json`))
+	}))
+	defer server.Close()
+	client := Client{BaseURL: server.URL, HTTPClient: server.Client()}
+	if _, err := client.RetrieveConversation(context.Background(), "abc"); err == nil {
+		t.Fatalf("expected json error")
+	}
+}
+
+func TestListContactsRejectsNegativeLimit(t *testing.T) {
+	client := Client{}
+	if _, err := client.ListContacts(context.Background(), -1); err == nil {
+		t.Fatalf("expected error for negative limit")
+	}
+}
+
+func TestEntityTeamIDsDeduplicates(t *testing.T) {
+	value := map[string]any{
+		"team_ids": []any{"a", "b", "a", "  "},
+		"teams": map[string]any{
+			"teams": []any{
+				map[string]any{"id": "c"},
+				map[string]any{"id": "a"},
+			},
+		},
+	}
+	ids := entityTeamIDs(value)
+	if len(ids) != 3 {
+		t.Fatalf("ids = %#v, want 3 unique", ids)
+	}
+}

@@ -84,3 +84,15 @@ func TestAcquireRejectsUnwritableParent(t *testing.T) {
 		t.Fatalf("acquire on read-only dir should fail")
 	}
 }
+
+func TestAcquireConflictsWithExistingLockFile(t *testing.T) {
+	dbPath := filepath.Join(t.TempDir(), "archive.db")
+	if err := os.WriteFile(dbPath+".lock", []byte("manual\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := Acquire(dbPath); err == nil {
+		t.Fatalf("expected lock conflict")
+	} else if !strings.Contains(err.Error(), "locked") {
+		t.Fatalf("err = %v, want 'locked'", err)
+	}
+}
