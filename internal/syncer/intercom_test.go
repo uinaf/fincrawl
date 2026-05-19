@@ -815,3 +815,136 @@ func TestSyncConversationRetriesRateLimitedHydration(t *testing.T) {
 		t.Fatalf("result = %#v", result)
 	}
 }
+
+func TestFirstWordsTrimsAndCaps(t *testing.T) {
+	cases := []struct {
+		in    string
+		count int
+		want  string
+	}{
+		{"  hello   there  friend  ", 2, "hello there"},
+		{"one two three", 5, "one two three"},
+		{"", 3, ""},
+		{"   ", 1, ""},
+		{"single", 1, "single"},
+	}
+	for _, tc := range cases {
+		if got := firstWords(tc.in, tc.count); got != tc.want {
+			t.Fatalf("firstWords(%q, %d) = %q, want %q", tc.in, tc.count, got, tc.want)
+		}
+	}
+}
+
+func TestNormalizeAssigneeFallsBackToIDs(t *testing.T) {
+	raw := map[string]any{"admin_assignee": map[string]any{"name": "Riley"}}
+	if got := normalizeAssignee(raw); got != "Riley" {
+		t.Fatalf("admin name = %q", got)
+	}
+	raw = map[string]any{"admin_assignee": map[string]any{"id": "adm_1"}}
+	if got := normalizeAssignee(raw); got != "adm_1" {
+		t.Fatalf("admin id = %q", got)
+	}
+	raw = map[string]any{"team_assignee_id": "team_42"}
+	if got := normalizeAssignee(raw); got != "team_42" {
+		t.Fatalf("team id = %q", got)
+	}
+	if got := normalizeAssignee(map[string]any{}); got != "" {
+		t.Fatalf("empty = %q", got)
+	}
+}
+
+func TestNormalizeRatingPrefersScoreThenRemark(t *testing.T) {
+	raw := map[string]any{"conversation_rating": map[string]any{"rating": "5"}}
+	if got := normalizeRating(raw); got != "5" {
+		t.Fatalf("score = %q", got)
+	}
+	raw = map[string]any{"conversation_rating": map[string]any{"remark": "great"}}
+	if got := normalizeRating(raw); got != "great" {
+		t.Fatalf("remark = %q", got)
+	}
+	if got := normalizeRating(map[string]any{}); got != "" {
+		t.Fatalf("absent = %q", got)
+	}
+}
+
+func TestNormalizeFinStatusReadsCanonicalAndLegacy(t *testing.T) {
+	if got := normalizeFinStatus(map[string]any{"fin_status": "resolved"}); got != "resolved" {
+		t.Fatalf("fin_status = %q", got)
+	}
+	if got := normalizeFinStatus(map[string]any{"ai_agent_status": "handed_over"}); got != "handed_over" {
+		t.Fatalf("ai_agent_status = %q", got)
+	}
+	if got := normalizeFinStatus(map[string]any{"ai_agent_participated": true}); got != "participated" {
+		t.Fatalf("participated = %q", got)
+	}
+	if got := normalizeFinStatus(map[string]any{"ai_agent_participated": false}); got != "" {
+		t.Fatalf("not participated = %q", got)
+	}
+}
+
+func TestConversationSubjectFallsBackThroughLayers(t *testing.T) {
+	if got := conversationSubject(map[string]any{"title": "Title here"}, nil); got != "Title here" {
+		t.Fatalf("title = %q", got)
+	}
+	if got := conversationSubject(map[string]any{"subject": "Subject here"}, nil); got != "Subject here" {
+		t.Fatalf("subject = %q", got)
+	}
+	source := map[string]any{"source": map[string]any{"subject": "From source"}}
+	if got := conversationSubject(source, nil); got != "From source" {
+		t.Fatalf("source subject = %q", got)
+	}
+	if got := conversationSubject(map[string]any{}, []store.Part{{Body: "hello there friend goodbye"}}); got != "hello there friend goodbye" {
+		t.Fatalf("part-derived subject = %q", got)
+	}
+	if got := conversationSubject(map[string]any{}, nil); got != "Intercom conversation" {
+		t.Fatalf("default = %q", got)
+	}
+}
+
+func TestStringValueAcceptsStringAndNumeric(t *testing.T) {
+	if got := stringValue(map[string]any{"k": " trimmed "}, "k"); got != "trimmed" {
+		t.Fatalf("trimmed = %q", got)
+	}
+	if got := stringValue(map[string]any{"k": float64(42)}, "k"); got != "42" {
+		t.Fatalf("int float = %q", got)
+	}
+	if got := stringValue(map[string]any{"k": float64(1.5)}, "k"); got != "1.5" {
+		t.Fatalf("frac float = %q", got)
+	}
+	if got := stringValue(map[string]any{"k": true}, "k"); got != "" {
+		t.Fatalf("bool = %q", got)
+	}
+}
+
+func TestTimeValueHandlesStringAndUnix(t *testing.T) {
+	if got := timeValue(map[string]any{"k": "2026-05-19T01:02:03Z"}, "k"); got != "2026-05-19T01:02:03Z" {
+		t.Fatalf("rfc3339 = %q", got)
+	}
+	if got := timeValue(map[string]any{"k": "not a date"}, "k"); got != "not a date" {
+		t.Fatalf("passthrough = %q", got)
+	}
+	if got := timeValue(map[string]any{"k": float64(0)}, "k"); got != "1970-01-01T00:00:00Z" {
+		t.Fatalf("unix epoch = %q", got)
+	}
+	if got := timeValue(map[string]any{"k": "  "}, "k"); got != "" {
+		t.Fatalf("blank = %q", got)
+	}
+	if got := timeValue(map[string]any{"k": true}, "k"); got != "" {
+		t.Fatalf("bool = %q", got)
+	}
+}
+
+func TestAuthorNamePicksFirstNonEmpty(t *testing.T) {
+	if got := authorName(map[string]any{"author": map[string]any{"name": "Riley", "email": "r@example.com"}}); got != "Riley" {
+		t.Fatalf("name = %q", got)
+	}
+	if got := authorName(map[string]any{"author": map[string]any{"email": "r@example.com"}}); got != "r@example.com" {
+		t.Fatalf("email = %q", got)
+	}
+	if got := authorName(map[string]any{"author": map[string]any{"type": "admin"}}); got != "admin" {
+		t.Fatalf("type = %q", got)
+	}
+	if got := authorName(map[string]any{}); got != "" {
+		t.Fatalf("none = %q", got)
+	}
+}

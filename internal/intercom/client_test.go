@@ -287,6 +287,68 @@ func TestLowRemainingBudgetSleepsUntilReset(t *testing.T) {
 	}
 }
 
+func TestRateLimitErrorString(t *testing.T) {
+	if got := (RateLimitError{}).Error(); got != "intercom rate limited" {
+		t.Fatalf("zero = %q", got)
+	}
+	if got := (RateLimitError{RetryAfter: 3 * time.Second}).Error(); got != "intercom rate limited: retry after 3s" {
+		t.Fatalf("with retry = %q", got)
+	}
+}
+
+func TestHTTPStatusErrorString(t *testing.T) {
+	bare := HTTPStatusError{Method: "GET", Path: "/conversations/1", StatusCode: 404}
+	if got := bare.Error(); got != "intercom GET /conversations/1 failed: status 404" {
+		t.Fatalf("bare = %q", got)
+	}
+	withBody := HTTPStatusError{Method: "POST", Path: "/search", StatusCode: 500, Body: "oops"}
+	if got := withBody.Error(); got != "intercom POST /search failed: status 500: oops" {
+		t.Fatalf("with body = %q", got)
+	}
+}
+
+type timeoutErr struct{}
+
+func (timeoutErr) Error() string { return "i/o timeout" }
+func (timeoutErr) Timeout() bool { return true }
+
+type nonTimeoutErr struct{}
+
+func (nonTimeoutErr) Error() string { return "boom" }
+func (nonTimeoutErr) Timeout() bool { return false }
+
+func TestShouldRetryError(t *testing.T) {
+	if !shouldRetryError(timeoutErr{}) {
+		t.Fatalf("timeoutErr should retry")
+	}
+	if shouldRetryError(nonTimeoutErr{}) {
+		t.Fatalf("nonTimeoutErr should not retry")
+	}
+	if shouldRetryError(nil) {
+		t.Fatalf("nil should not retry")
+	}
+	plain := errorString("plain")
+	if shouldRetryError(plain) {
+		t.Fatalf("plain string err should not retry")
+	}
+}
+
+type errorString string
+
+func (e errorString) Error() string { return string(e) }
+
+func TestRetryDelayScales(t *testing.T) {
+	if d := retryDelay(0, 0); d != time.Second {
+		t.Fatalf("zero base zero attempt = %s", d)
+	}
+	if d := retryDelay(2*time.Second, 1); d != 2*time.Second {
+		t.Fatalf("attempt 1 = %s", d)
+	}
+	if d := retryDelay(2*time.Second, 3); d != 6*time.Second {
+		t.Fatalf("attempt 3 = %s", d)
+	}
+}
+
 func TestLowRemainingBudgetThrottlesSuccessfulResponse(t *testing.T) {
 	var slept bool
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -309,5 +371,124 @@ func TestLowRemainingBudgetThrottlesSuccessfulResponse(t *testing.T) {
 	}
 	if !slept {
 		t.Fatalf("expected throttle sleep")
+	}
+}
+
+func TestStringValueIntercomTypes(t *testing.T) {
+	if got := stringValue(map[string]any{"k": "  hi  "}, "k"); got != "hi" {
+		t.Fatalf("string = %q", got)
+	}
+	if got := stringValue(map[string]any{"k": float64(7)}, "k"); got != "7" {
+		t.Fatalf("int float = %q", got)
+	}
+	if got := stringValue(map[string]any{"k": float64(1.5)}, "k"); got != "1.5" {
+		t.Fatalf("frac float = %q", got)
+	}
+	if got := stringValue(map[string]any{"k": true}, "k"); got != "" {
+		t.Fatalf("bool = %q", got)
+	}
+	if got := stringValue(map[string]any{}, "missing"); got != "" {
+		t.Fatalf("missing = %q", got)
+	}
+}
+
+func TestRawItemsAcceptsArrayAndKeyed(t *testing.T) {
+	arr, err := rawItems([]byte(`[{"id":"a"},{"id":"b"}]`), "data")
+	if err != nil || len(arr) != 2 {
+		t.Fatalf("array = %v %d err=%v", arr, len(arr), err)
+	}
+	keyed, err := rawItems([]byte(`{"data":[{"id":"a"}]}`), "data")
+	if err != nil || len(keyed) != 1 {
+		t.Fatalf("keyed = %v %d err=%v", keyed, len(keyed), err)
+	}
+	if _, err := rawItems([]byte(`{"unrelated":1}`), "data", "alt"); err == nil {
+		t.Fatalf("expected missing-keys error")
+	}
+	if _, err := rawItems([]byte(`not-json`), "data"); err == nil {
+		t.Fatalf("expected json error")
+	}
+	if _, err := rawItems([]byte(`{"data":"notalist"}`), "data"); err == nil {
+		t.Fatalf("expected list decode error")
+	}
+}
+
+func TestNextCursorReadsPaging(t *testing.T) {
+	if got := nextCursor([]byte(`{"pages":{"next":{"starting_after":"cursor_42"}}}`)); got != "cursor_42" {
+		t.Fatalf("cursor = %q", got)
+	}
+	if got := nextCursor([]byte(`{}`)); got != "" {
+		t.Fatalf("missing cursor = %q", got)
+	}
+	if got := nextCursor([]byte(`not json`)); got != "" {
+		t.Fatalf("bad json = %q", got)
+	}
+}
+
+func TestSleepHonoursContextAndDefaultTimer(t *testing.T) {
+	c := Client{}
+	if err := c.sleep(context.Background(), 0); err != nil {
+		t.Fatalf("zero delay = %v", err)
+	}
+	if err := c.sleep(context.Background(), -time.Second); err != nil {
+		t.Fatalf("negative delay = %v", err)
+	}
+	if err := c.sleep(context.Background(), time.Millisecond); err != nil {
+		t.Fatalf("short timer = %v", err)
+	}
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+	if err := c.sleep(ctx, time.Hour); err == nil {
+		t.Fatalf("cancelled context should error")
+	}
+}
+
+func TestFirstNonEmptyHelper(t *testing.T) {
+	if got := firstNonEmpty("", "  ", "hit", "next"); got != "hit" {
+		t.Fatalf("hit = %q", got)
+	}
+	if got := firstNonEmpty("", "", " "); got != "" {
+		t.Fatalf("all empty = %q", got)
+	}
+}
+
+func TestDoJSONReturnsHTTPStatusError(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		http.Error(w, "boom", http.StatusInternalServerError)
+	}))
+	defer server.Close()
+	client := Client{BaseURL: server.URL, HTTPClient: server.Client(), MaxAttempts: 1}
+	_, err := client.SearchConversations(context.Background(), time.Unix(1, 0), time.Unix(2, 0), "")
+	statusErr, ok := err.(HTTPStatusError)
+	if !ok {
+		t.Fatalf("err = %T %v, want HTTPStatusError", err, err)
+	}
+	if statusErr.StatusCode != http.StatusInternalServerError {
+		t.Fatalf("status = %d", statusErr.StatusCode)
+	}
+}
+
+func TestDoJSONRetriesOn5xx(t *testing.T) {
+	var attempts int
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		attempts++
+		if attempts < 2 {
+			http.Error(w, "transient", http.StatusBadGateway)
+			return
+		}
+		w.Header().Set("Content-Type", "application/json")
+		w.Write([]byte(`{"conversations":[],"pages":{"next":{}}}`))
+	}))
+	defer server.Close()
+	client := Client{
+		BaseURL:     server.URL,
+		HTTPClient:  server.Client(),
+		MaxAttempts: 3,
+		Sleep:       func(ctx context.Context, d time.Duration) error { return nil },
+	}
+	if _, err := client.SearchConversations(context.Background(), time.Unix(1, 0), time.Unix(2, 0), ""); err != nil {
+		t.Fatal(err)
+	}
+	if attempts < 2 {
+		t.Fatalf("attempts = %d, expected retry", attempts)
 	}
 }

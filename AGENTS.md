@@ -17,9 +17,11 @@ default user state. The smoke script already does this.
 ## Checks
 
 - `./scripts/smoke` exercises the real CLI offline with synthetic fixtures.
-- `./scripts/verify` runs module tidy checking, tests with coverage report,
+- `./scripts/verify` runs module tidy checking, tests with coverage report
+  (enforced at `FINCRAWL_COVERAGE_FLOOR=80` by default; target is 90),
   vet, race tests, smoke, guardrails, release-check, lint, and whitespace
-  checks. This is the canonical one-shot.
+  checks. This is the canonical one-shot. Override the floor via
+  `FINCRAWL_COVERAGE_FLOOR=N ./scripts/verify` when ratcheting.
 - `./scripts/lint` runs `staticcheck`, `gofumpt -l`, `govulncheck`, and
   `gosec` with pinned versions. Auto-installs the tools on first run.
 - `./scripts/release-check` validates the GoReleaser config used by CI.

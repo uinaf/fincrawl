@@ -450,3 +450,157 @@ func runGit(root string, args ...string) error {
 	cmd.Dir = root
 	return cmd.Run()
 }
+
+func TestVerifiedSnapshotsReturnsFilesOnSuccess(t *testing.T) {
+	root := t.TempDir()
+	if err := os.MkdirAll(filepath.Join(root, "snapshots"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(root, "snapshots", "one.jsonl.zst.age"), []byte("encrypted"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(root, "manifest.json"), []byte(`{"version":"1","snapshots":[{"path":"snapshots/one.jsonl.zst.age","records":42,"created_at":"2026-05-19T00:00:00Z"}]}`), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	report, files, err := VerifiedSnapshots(context.Background(), root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !report.OK || len(files) != 1 {
+		t.Fatalf("report = %#v files = %#v", report, files)
+	}
+	f := files[0]
+	if f.Path != filepath.Join("snapshots", "one.jsonl.zst.age") {
+		t.Fatalf("path = %q", f.Path)
+	}
+	if f.Records != 42 || f.CreatedAt != "2026-05-19T00:00:00Z" {
+		t.Fatalf("file = %#v", f)
+	}
+	if !strings.HasPrefix(f.FullPath, root) {
+		t.Fatalf("full path %q not under root %q", f.FullPath, root)
+	}
+}
+
+func TestVerifiedSnapshotsReturnsNilOnFailedVerify(t *testing.T) {
+	root := t.TempDir()
+	if err := os.MkdirAll(filepath.Join(root, "snapshots"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(root, "snapshots", "one.jsonl.zst.age"), []byte("encrypted"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(root, "manifest.json"), []byte(`{"version":"1","snapshots":[{"path":"snapshots/one.jsonl.zst.age"}]}`), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(root, "leak.db"), []byte("sqlite"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	report, files, err := VerifiedSnapshots(context.Background(), root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if report.OK {
+		t.Fatalf("expected verify to fail on plaintext leak, got %#v", report)
+	}
+	if files != nil {
+		t.Fatalf("expected nil files on failure, got %#v", files)
+	}
+}
+
+func TestPlaintextArtifactClassifies(t *testing.T) {
+	for path, want := range map[string]bool{
+		"snapshots/x.jsonl":         true,
+		"snapshots/x.jsonl.zst":     true,
+		"data/store.db":             true,
+		"data/store.sqlite-wal":     true,
+		"data/store.tar":            true,
+		"data/store.tar.zst":        true,
+		"snapshots/x.jsonl.zst.age": false,
+		"snapshots/x.tar.zst.age":   false,
+		"docs/architecture.md":      false,
+	} {
+		if got := plaintextArtifact(path); got != want {
+			t.Fatalf("plaintextArtifact(%q) = %v, want %v", path, got, want)
+		}
+	}
+}
+
+func TestPlaintextRuntimeFileClassifies(t *testing.T) {
+	for path, want := range map[string]bool{
+		"logs/run.log":           true,
+		"trace.har":              true,
+		"report-summary.json":    true,
+		"screenshot-home.png":    true,
+		"screenshot-overview.pdf":true,
+		"transcript-call.md":     true,
+		"transcript-call.json":   true,
+		"docs/architecture.md":   false,
+		"snapshots/x.jsonl.zst.age": false,
+	} {
+		if got := plaintextRuntimeFile(path); got != want {
+			t.Fatalf("plaintextRuntimeFile(%q) = %v, want %v", path, got, want)
+		}
+	}
+}
+
+func TestRuntimeDirectoryNameRecognizes(t *testing.T) {
+	for name, want := range map[string]bool{
+		"logs": true, "reports": true, "screenshots": true,
+		"state": true, "transcripts": true,
+		"docs": false, "snapshots": false,
+	} {
+		if got := runtimeDirectoryName(name); got != want {
+			t.Fatalf("runtimeDirectoryName(%q) = %v, want %v", name, got, want)
+		}
+	}
+}
+
+func TestEncryptedSnapshotPathRecognizes(t *testing.T) {
+	for path, want := range map[string]bool{
+		"snapshots/x.jsonl.zst.age": true,
+		"snapshots/x.tar.zst.age":   true,
+		"snapshots/x.jsonl":         false,
+	} {
+		if got := encryptedSnapshotPath(path); got != want {
+			t.Fatalf("encryptedSnapshotPath(%q) = %v, want %v", path, got, want)
+		}
+	}
+}
+
+func TestHasUnsafePathTextRejectsControlAndPctEncoded(t *testing.T) {
+	for path, want := range map[string]bool{
+		"normal/path":        false,
+		"has space":          false,
+		"has\x01control":     true,
+		"with?query":         true,
+		"with#frag":          true,
+		"pct%2eencoded":      true,
+		"pct%2Fseparator":    true,
+		"pct%5Cbackslash":    true,
+	} {
+		if got := hasUnsafePathText(path); got != want {
+			t.Fatalf("hasUnsafePathText(%q) = %v, want %v", path, got, want)
+		}
+	}
+}
+
+func TestAllowedDocSymlinkOnlyForClaudeMdToAgents(t *testing.T) {
+	dir := t.TempDir()
+	if err := os.WriteFile(filepath.Join(dir, "AGENTS.md"), []byte("agents"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	link := filepath.Join(dir, "CLAUDE.md")
+	if err := os.Symlink("AGENTS.md", link); err != nil {
+		t.Fatal(err)
+	}
+	if !allowedDocSymlink(link, "CLAUDE.md") {
+		t.Fatalf("expected allowed symlink")
+	}
+	bad := filepath.Join(dir, "OTHER.md")
+	if err := os.Symlink("AGENTS.md", bad); err != nil {
+		t.Fatal(err)
+	}
+	if allowedDocSymlink(bad, "OTHER.md") {
+		t.Fatalf("only CLAUDE.md should be allowed")
+	}
+}

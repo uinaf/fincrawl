@@ -3,6 +3,7 @@ package control
 import (
 	"context"
 	"encoding/json"
+	"os"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -111,6 +112,49 @@ func TestStatusReadsPreEntityArchives(t *testing.T) {
 	}
 }
 
+func TestManifestPublishesExpectedSurface(t *testing.T) {
+	rt := config.Runtime{
+		Paths: ckconfig.Paths{ConfigPath: "/tmp/fincrawl/config.toml"},
+		Config: ckconfig.RuntimeConfig{
+			DBPath:   "/tmp/fincrawl/archive.db",
+			CacheDir: "/tmp/fincrawl/cache",
+			LogDir:   "/tmp/fincrawl/logs",
+			ShareDir: "/tmp/fincrawl/share",
+		},
+	}
+	m := Manifest(rt)
+	if m.ID != config.AppID || m.DisplayName != config.DisplayName {
+		t.Fatalf("identity = %q/%q", m.ID, m.DisplayName)
+	}
+	if m.Paths.DefaultConfig != rt.Paths.ConfigPath || m.Paths.DefaultDatabase != rt.Config.DBPath {
+		t.Fatalf("paths = %#v", m.Paths)
+	}
+	if m.Paths.DefaultCache != rt.Config.CacheDir || m.Paths.DefaultLogs != rt.Config.LogDir || m.Paths.DefaultShare != rt.Config.ShareDir {
+		t.Fatalf("default dirs = %#v", m.Paths)
+	}
+	wantCmds := []string{"doctor", "metadata", "describe", "status", "sync", "search", "show", "archive", "publish", "import", "subscribe", "store", "guard"}
+	for _, name := range wantCmds {
+		if _, ok := m.Commands[name]; !ok {
+			t.Fatalf("missing command %q in manifest", name)
+		}
+	}
+	mutating := map[string]bool{"sync": true, "archive": true, "publish": true, "import": true, "subscribe": true}
+	for name, cmd := range m.Commands {
+		if mutating[name] && !cmd.Mutates {
+			t.Fatalf("%q should be marked mutating", name)
+		}
+		if !mutating[name] && cmd.Mutates {
+			t.Fatalf("%q should not be marked mutating", name)
+		}
+	}
+	if !m.Privacy.ContainsPrivateMessages || m.Privacy.ExportsSecrets {
+		t.Fatalf("privacy = %#v", m.Privacy)
+	}
+	if len(m.Capabilities) == 0 {
+		t.Fatalf("capabilities empty")
+	}
+}
+
 const legacyStatusSchema = `
 create table if not exists conversations (
 	id text primary key,
@@ -159,3 +203,37 @@ create table if not exists sync_state (
 	updated_at text not null
 );
 `
+
+func TestStatusReportsEmptyOnMissingDB(t *testing.T) {
+	ctx := context.Background()
+	root := t.TempDir()
+	report := Status(ctx, config.Runtime{
+		Paths:  ckconfig.Paths{ConfigPath: filepath.Join(root, "config.toml")},
+		Config: ckconfig.RuntimeConfig{DBPath: filepath.Join(root, "missing.db")},
+	})
+	if report.State != "empty" {
+		t.Fatalf("state = %q", report.State)
+	}
+	if report.Summary == "" {
+		t.Fatalf("expected summary message")
+	}
+}
+
+func TestStatusReportsWarningOnUnreadableDB(t *testing.T) {
+	ctx := context.Background()
+	root := t.TempDir()
+	dbPath := filepath.Join(root, "bad.db")
+	if err := os.WriteFile(dbPath, []byte("not a sqlite file"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	report := Status(ctx, config.Runtime{
+		Paths:  ckconfig.Paths{ConfigPath: filepath.Join(root, "config.toml")},
+		Config: ckconfig.RuntimeConfig{DBPath: dbPath},
+	})
+	if report.State != "warning" {
+		t.Fatalf("state = %q", report.State)
+	}
+	if len(report.Warnings) == 0 {
+		t.Fatalf("expected warning entry")
+	}
+}

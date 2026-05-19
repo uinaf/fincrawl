@@ -52,3 +52,100 @@ func TestLoadRuntimeReturnsDotEnvParseErrors(t *testing.T) {
 func quoteTOML(value string) string {
 	return `"` + value + `"`
 }
+
+func TestEnvAccessorsTrimAndReadFromProcess(t *testing.T) {
+	for _, tc := range []struct {
+		name   string
+		key    string
+		value  string
+		want   string
+		getter func() string
+	}{
+		{"AgeRecipient trimmed", EnvAgeRecipient, "  age1xyz  ", "age1xyz", AgeRecipient},
+		{"AgeIdentity trimmed", EnvAgeIdentity, "\tAGE-SECRET-KEY-1\n", "AGE-SECRET-KEY-1", AgeIdentity},
+		{"IntercomToken trimmed", EnvIntercomCred, " dG9rZW4= ", "dG9rZW4=", IntercomToken},
+		{"IntercomBaseURL trimmed", EnvIntercomBase, "  https://api.eu.intercom.io  ", "https://api.eu.intercom.io", IntercomBaseURL},
+		{"IntercomVersion trimmed", EnvIntercomVer, "  2.13  ", "2.13", IntercomVersion},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Setenv(tc.key, tc.value)
+			if got := tc.getter(); got != tc.want {
+				t.Fatalf("%s = %q, want %q", tc.key, got, tc.want)
+			}
+		})
+	}
+}
+
+func TestEnsureDirsCreatesRuntimePaths(t *testing.T) {
+	root := t.TempDir()
+	t.Setenv(EnvHome, root)
+	t.Setenv(App.ConfigEnv, "")
+	rt, err := LoadRuntime()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := EnsureDirs(rt); err != nil {
+		t.Fatal(err)
+	}
+	for _, dir := range []string{rt.Config.CacheDir, rt.Config.LogDir, rt.Config.ShareDir} {
+		if info, err := os.Stat(dir); err != nil || !info.IsDir() {
+			t.Fatalf("expected directory %q (err=%v info=%v)", dir, err, info)
+		}
+	}
+}
+
+func TestUnquoteStripsMatchedDelimiters(t *testing.T) {
+	for _, tc := range []struct {
+		in   string
+		want string
+	}{
+		{`"value"`, "value"},
+		{`'value'`, "value"},
+		{`value`, "value"},
+		{`""`, ""},
+		{`"`, `"`},
+		{`'mixed"`, `'mixed"`},
+	} {
+		if got := unquote(tc.in); got != tc.want {
+			t.Fatalf("unquote(%q) = %q, want %q", tc.in, got, tc.want)
+		}
+	}
+}
+
+func TestLoadDotEnvSetsAndQuoting(t *testing.T) {
+	root := t.TempDir()
+	body := "# comment\n\n" +
+		`PLAIN=hello` + "\n" +
+		`QUOTED="quoted value"` + "\n" +
+		`SQUOTED='sval'` + "\n" +
+		`SKIP_EXISTING=ignored` + "\n"
+	path := filepath.Join(root, "env")
+	if err := os.WriteFile(path, []byte(body), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("PLAIN", "")
+	t.Setenv("QUOTED", "")
+	t.Setenv("SQUOTED", "")
+	t.Setenv("SKIP_EXISTING", "preset")
+	if err := LoadDotEnv(path); err != nil {
+		t.Fatal(err)
+	}
+	if v := os.Getenv("PLAIN"); v != "hello" {
+		t.Fatalf("PLAIN = %q", v)
+	}
+	if v := os.Getenv("QUOTED"); v != "quoted value" {
+		t.Fatalf("QUOTED = %q", v)
+	}
+	if v := os.Getenv("SQUOTED"); v != "sval" {
+		t.Fatalf("SQUOTED = %q", v)
+	}
+	if v := os.Getenv("SKIP_EXISTING"); v != "preset" {
+		t.Fatalf("SKIP_EXISTING = %q, want preset", v)
+	}
+}
+
+func TestLoadDotEnvMissingFileIsNoOp(t *testing.T) {
+	if err := LoadDotEnv(filepath.Join(t.TempDir(), "nope")); err != nil {
+		t.Fatalf("expected nil for missing file, got %v", err)
+	}
+}

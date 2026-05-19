@@ -161,3 +161,50 @@ func runGit(t *testing.T, dir string, args ...string) {
 		t.Fatalf("git %v: %v\n%s", args, err, out)
 	}
 }
+
+func TestForbiddenPathClassifiesArtifactTypes(t *testing.T) {
+	cases := map[string]bool{
+		".env":                   true,
+		".env.local":             true,
+		".env.something":         true,
+		".env.example":           false,
+		".env.local.example":     false,
+		"snapshots/foo.txt":      true,
+		"reports/page.html":      true,
+		"screenshots/x.png":      true,
+		"logs/run.log":           true,
+		"transcripts/x.txt":      true,
+		"data/archive.jsonl":     true,
+		"data/archive.jsonl.gz":  true,
+		"data/archive.tar":       true,
+		"data/archive.tar.gz":    true,
+		"data/store.sqlite":      true,
+		"data/store.db":          true,
+		"data/store.sqlite-wal":  true,
+		"trace.har":              true,
+		"x.jsonl.zst.age":        true,
+		"docs/architecture.md":   false,
+		"internal/cli/cli.go":    false,
+	}
+	for path, want := range cases {
+		got := forbiddenPath(path)
+		if (got != "") != want {
+			t.Fatalf("forbiddenPath(%q) = %q, want forbidden=%v", path, got, want)
+		}
+	}
+}
+
+func TestRunReportsScannedZeroForEmptyDir(t *testing.T) {
+	repo := t.TempDir()
+	runGit(t, repo, "init", "--quiet")
+	runGit(t, repo, "config", "user.email", "test@example.com")
+	runGit(t, repo, "config", "user.name", "Test")
+	runGit(t, repo, "commit", "--allow-empty", "-m", "init", "--quiet")
+	result, err := Run(repo)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !result.OK {
+		t.Fatalf("empty repo flagged: %#v", result.Findings)
+	}
+}
