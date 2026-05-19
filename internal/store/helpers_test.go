@@ -585,3 +585,106 @@ func TestExportFixturePropagatesCancelledContext(t *testing.T) {
 		t.Fatalf("expected cancelled context error")
 	}
 }
+
+func TestSyncEntitiesFailsOnReadOnlyDB(t *testing.T) {
+	ctx := context.Background()
+	dbPath := filepath.Join(t.TempDir(), "archive.db")
+	// Open + create the schema first.
+	if _, err := SyncEntities(ctx, dbPath, Workspace{ID: "ws", Provider: "intercom", Name: "ws"}, Entities{}); err != nil {
+		t.Fatal(err)
+	}
+	// Make the database read-only.
+	if err := os.Chmod(dbPath, 0o400); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = os.Chmod(dbPath, 0o600) })
+	// SaveSyncState writes — should fail.
+	if err := SaveSyncState(ctx, dbPath, SyncState{ID: "intercom.tail", Provider: "intercom", CursorKind: "updated_at", HighWaterMark: "2026-05-19T00:00:00Z"}); err == nil {
+		t.Fatalf("expected write failure on read-only db")
+	}
+	// SyncEntities also writes — should fail.
+	if _, err := SyncEntities(ctx, dbPath, Workspace{ID: "ws", Provider: "intercom", Name: "ws"}, Entities{
+		Admins: []Admin{{ProviderID: "a1", Name: "Riley"}},
+	}); err == nil {
+		t.Fatalf("expected SyncEntities to fail")
+	}
+	// SyncConversations also writes — should fail.
+	if _, err := SyncConversations(ctx, dbPath, Workspace{ID: "ws", Provider: "intercom", Name: "ws"}, []Conversation{
+		{ID: "c1", ProviderID: "ic_c1", CreatedAt: "2026-01-01T00:00:00Z", UpdatedAt: "2026-01-01T00:00:00Z"},
+	}); err == nil {
+		t.Fatalf("expected SyncConversations to fail")
+	}
+}
+
+func TestUpsertConversationFailsWhenTableDropped(t *testing.T) {
+	ctx := context.Background()
+	dbPath := filepath.Join(t.TempDir(), "archive.db")
+	st, err := openStore(ctx, dbPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer st.Close()
+	// Drop the conversations table to force upsertConversation to fail.
+	if _, err := st.DB().ExecContext(ctx, `drop table conversations`); err != nil {
+		t.Fatal(err)
+	}
+	tx, err := st.DB().BeginTx(ctx, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer tx.Rollback()
+	if err := upsertWorkspace(ctx, tx, Workspace{ID: "ws", Provider: "intercom", Name: "ws"}); err != nil {
+		// Workspace upsert may or may not fail depending on schema state.
+		// This is opportunistic coverage, not an assertion.
+		_ = err
+	}
+	result := SyncResult{}
+	if err := upsertConversation(ctx, tx, "ws", Conversation{
+		ID: "c1", Provider: "intercom", ProviderID: "ic_c1", Subject: "x",
+		CreatedAt: "2026-01-01T00:00:00Z", UpdatedAt: "2026-01-01T00:00:00Z",
+	}, &result); err == nil {
+		t.Fatalf("expected upsertConversation to fail with conversations table dropped")
+	}
+}
+
+func TestRebuildConversationFTSFailsWhenTableDropped(t *testing.T) {
+	ctx := context.Background()
+	dbPath := filepath.Join(t.TempDir(), "archive.db")
+	st, err := openStore(ctx, dbPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer st.Close()
+	if _, err := st.DB().ExecContext(ctx, `drop table conversation_fts`); err != nil {
+		t.Fatal(err)
+	}
+	tx, err := st.DB().BeginTx(ctx, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer tx.Rollback()
+	if err := rebuildConversationFTS(ctx, tx, "conv_1"); err == nil {
+		t.Fatalf("expected rebuildConversationFTS to fail with fts table dropped")
+	}
+}
+
+func TestUpsertWorkspaceFailsWhenTableDropped(t *testing.T) {
+	ctx := context.Background()
+	dbPath := filepath.Join(t.TempDir(), "archive.db")
+	st, err := openStore(ctx, dbPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer st.Close()
+	if _, err := st.DB().ExecContext(ctx, `drop table workspaces`); err != nil {
+		t.Fatal(err)
+	}
+	tx, err := st.DB().BeginTx(ctx, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer tx.Rollback()
+	if err := upsertWorkspace(ctx, tx, Workspace{ID: "ws", Provider: "intercom", Name: "ws"}); err == nil {
+		t.Fatalf("expected upsertWorkspace to fail with workspaces table dropped")
+	}
+}
