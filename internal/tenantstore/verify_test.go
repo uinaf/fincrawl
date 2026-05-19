@@ -527,14 +527,14 @@ func TestPlaintextArtifactClassifies(t *testing.T) {
 
 func TestPlaintextRuntimeFileClassifies(t *testing.T) {
 	for path, want := range map[string]bool{
-		"logs/run.log":           true,
-		"trace.har":              true,
-		"report-summary.json":    true,
-		"screenshot-home.png":    true,
-		"screenshot-overview.pdf":true,
-		"transcript-call.md":     true,
-		"transcript-call.json":   true,
-		"docs/architecture.md":   false,
+		"logs/run.log":              true,
+		"trace.har":                 true,
+		"report-summary.json":       true,
+		"screenshot-home.png":       true,
+		"screenshot-overview.pdf":   true,
+		"transcript-call.md":        true,
+		"transcript-call.json":      true,
+		"docs/architecture.md":      false,
 		"snapshots/x.jsonl.zst.age": false,
 	} {
 		if got := plaintextRuntimeFile(path); got != want {
@@ -569,14 +569,14 @@ func TestEncryptedSnapshotPathRecognizes(t *testing.T) {
 
 func TestHasUnsafePathTextRejectsControlAndPctEncoded(t *testing.T) {
 	for path, want := range map[string]bool{
-		"normal/path":        false,
-		"has space":          false,
-		"has\x01control":     true,
-		"with?query":         true,
-		"with#frag":          true,
-		"pct%2eencoded":      true,
-		"pct%2Fseparator":    true,
-		"pct%5Cbackslash":    true,
+		"normal/path":     false,
+		"has space":       false,
+		"has\x01control":  true,
+		"with?query":      true,
+		"with#frag":       true,
+		"pct%2eencoded":   true,
+		"pct%2Fseparator": true,
+		"pct%5Cbackslash": true,
 	} {
 		if got := hasUnsafePathText(path); got != want {
 			t.Fatalf("hasUnsafePathText(%q) = %v, want %v", path, got, want)

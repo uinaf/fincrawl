@@ -2,8 +2,8 @@ package syncer
 
 import (
 	"context"
-	"io"
 	"encoding/json"
+	"io"
 	"net/http"
 	"net/http/httptest"
 	"path/filepath"
