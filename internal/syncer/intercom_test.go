@@ -2,6 +2,7 @@ package syncer
 
 import (
 	"context"
+	"io"
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
@@ -946,5 +947,47 @@ func TestAuthorNamePicksFirstNonEmpty(t *testing.T) {
 	}
 	if got := authorName(map[string]any{}); got != "" {
 		t.Fatalf("none = %q", got)
+	}
+}
+
+func TestIntercomSyncerSleepUsesClientHookAndDefault(t *testing.T) {
+	called := false
+	s := IntercomSyncer{Client: intercom.Client{Sleep: func(ctx context.Context, d time.Duration) error {
+		called = true
+		return nil
+	}}}
+	if err := s.sleep(context.Background(), time.Second); err != nil {
+		t.Fatal(err)
+	}
+	if !called {
+		t.Fatalf("expected client sleep hook to be called")
+	}
+	// Default path with very short delay should return promptly.
+	bare := IntercomSyncer{}
+	if err := bare.sleep(context.Background(), time.Millisecond); err != nil {
+		t.Fatalf("default sleep: %v", err)
+	}
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+	if err := bare.sleep(ctx, time.Hour); err == nil {
+		t.Fatalf("cancelled context should error")
+	}
+}
+
+func TestIsScopeDenied(t *testing.T) {
+	if isScopeDenied(nil) {
+		t.Fatalf("nil should not be scope-denied")
+	}
+	if isScopeDenied(io.EOF) {
+		t.Fatalf("non-status error should not be scope-denied")
+	}
+	if !isScopeDenied(intercom.HTTPStatusError{StatusCode: 401}) {
+		t.Fatalf("401 should be scope-denied")
+	}
+	if !isScopeDenied(intercom.HTTPStatusError{StatusCode: 403}) {
+		t.Fatalf("403 should be scope-denied")
+	}
+	if isScopeDenied(intercom.HTTPStatusError{StatusCode: 500}) {
+		t.Fatalf("500 should not be scope-denied")
 	}
 }

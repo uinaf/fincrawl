@@ -208,3 +208,54 @@ func TestRunReportsScannedZeroForEmptyDir(t *testing.T) {
 		t.Fatalf("empty repo flagged: %#v", result.Findings)
 	}
 }
+
+func TestRunFlagsLogsAndProviderURLsInRepo(t *testing.T) {
+	repo := t.TempDir()
+	runGit(t, repo, "init", "--quiet")
+	runGit(t, repo, "config", "user.email", "test@example.com")
+	runGit(t, repo, "config", "user.name", "Test")
+	// Commit a forbidden plaintext archive path so it ends up in the working tree:
+	write(t, repo, "logs/run.log", "ok\n")
+	write(t, repo, "snapshots/x.jsonl", "plain\n")
+	// .env files
+	write(t, repo, ".env", "SECRET=x\n")
+	result, err := Run(repo)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if result.OK {
+		t.Fatalf("expected findings: %#v", result)
+	}
+	if len(result.Findings) < 3 {
+		t.Fatalf("findings = %d, want >= 3: %#v", len(result.Findings), result.Findings)
+	}
+}
+
+func TestRunDetectsSecretLookingContent(t *testing.T) {
+	repo := t.TempDir()
+	runGit(t, repo, "init", "--quiet")
+	runGit(t, repo, "config", "user.email", "test@example.com")
+	runGit(t, repo, "config", "user.name", "Test")
+	// Compose at runtime so guard scanning *this* test file does not flag it.
+	secret := "INTERCOM_" + "TOKEN" + "=" + "abcdef0123456789ABCD"
+	write(t, repo, "config.txt", secret+"\n")
+	result, err := Run(repo)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if result.OK {
+		t.Fatalf("expected secret finding: %#v", result.Findings)
+	}
+}
+
+func TestForbiddenPathPermitsExampleEnv(t *testing.T) {
+	if forbiddenPath(".env.example") != "" {
+		t.Fatalf("example env should not be forbidden")
+	}
+	if forbiddenPath(".env.local.example") != "" {
+		t.Fatalf("example local env should not be forbidden")
+	}
+	if forbiddenPath(".env.local") == "" {
+		t.Fatalf("local env should be forbidden")
+	}
+}
