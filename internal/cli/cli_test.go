@@ -1938,3 +1938,113 @@ func TestStoreVerifyJSONOutput(t *testing.T) {
 		t.Fatalf("expected store verify to fail without manifest")
 	}
 }
+
+func TestSubscribeDryRunListsSnapshots(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("FINCRAWL_HOME", home)
+	t.Chdir(home)
+	// build a valid encrypted tenant store
+	identity, err := age.GenerateX25519Identity()
+	if err != nil {
+		t.Fatal(err)
+	}
+	var stdout, stderr bytes.Buffer
+	if err := Run(context.Background(), []string{
+		"archive",
+		"--fixture", filepath.Join(repoRoot(t), "testdata", "synthetic"),
+		"--recipient", identity.Recipient().String(),
+		"--out", "snapshots/one.jsonl.zst.age",
+		"--json",
+	}, &stdout, &stderr); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(home, "manifest.json"),
+		[]byte(`{"version":"1","snapshots":[{"path":"snapshots/one.jsonl.zst.age"}]}`), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	stdout.Reset()
+	if err := Run(context.Background(), []string{
+		"subscribe", home,
+		"--identity", identity.String(),
+		"--dry-run",
+		"--json",
+	}, &stdout, &stderr); err != nil {
+		t.Fatalf("subscribe dry: %v", err)
+	}
+	if !bytes.Contains(stdout.Bytes(), []byte(`"dry_run": true`)) {
+		t.Fatalf("subscribe dry payload: %s", stdout.String())
+	}
+}
+
+func TestSubscribeImportsSnapshots(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("FINCRAWL_HOME", home)
+	t.Chdir(home)
+	identity, err := age.GenerateX25519Identity()
+	if err != nil {
+		t.Fatal(err)
+	}
+	var stdout, stderr bytes.Buffer
+	if err := Run(context.Background(), []string{
+		"archive",
+		"--fixture", filepath.Join(repoRoot(t), "testdata", "synthetic"),
+		"--recipient", identity.Recipient().String(),
+		"--out", "snapshots/one.jsonl.zst.age",
+		"--json",
+	}, &stdout, &stderr); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(home, "manifest.json"),
+		[]byte(`{"version":"1","snapshots":[{"path":"snapshots/one.jsonl.zst.age"}]}`), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	stdout.Reset()
+	// Use FINCRAWL_HOME for archive db inside the tenant store dir
+	freshHome := t.TempDir()
+	t.Setenv("FINCRAWL_HOME", freshHome)
+	if err := Run(context.Background(), []string{
+		"subscribe", home,
+		"--identity", identity.String(),
+		"--json",
+	}, &stdout, &stderr); err != nil {
+		t.Fatalf("subscribe: %v", err)
+	}
+	if !bytes.Contains(stdout.Bytes(), []byte(`"imported_snapshots"`)) {
+		t.Fatalf("subscribe payload: %s", stdout.String())
+	}
+}
+
+func TestStoreVerifyJSONReportsValidStore(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("FINCRAWL_HOME", home)
+	identity, err := age.GenerateX25519Identity()
+	if err != nil {
+		t.Fatal(err)
+	}
+	tenant := filepath.Join(home, "tenant")
+	if err := os.MkdirAll(filepath.Join(tenant, "snapshots"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	t.Chdir(home)
+	var stdout, stderr bytes.Buffer
+	if err := Run(context.Background(), []string{
+		"archive",
+		"--fixture", filepath.Join(repoRoot(t), "testdata", "synthetic"),
+		"--recipient", identity.Recipient().String(),
+		"--out", "tenant/snapshots/one.jsonl.zst.age",
+		"--json",
+	}, &stdout, &stderr); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(tenant, "manifest.json"),
+		[]byte(`{"version":"1","snapshots":[{"path":"snapshots/one.jsonl.zst.age"}]}`), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	stdout.Reset()
+	if err := Run(context.Background(), []string{"store", "verify", tenant, "--json"}, &stdout, &stderr); err != nil {
+		t.Fatalf("store verify: %v", err)
+	}
+	if !bytes.Contains(stdout.Bytes(), []byte(`"ok": true`)) {
+		t.Fatalf("store verify payload: %s", stdout.String())
+	}
+}
