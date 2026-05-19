@@ -137,3 +137,20 @@ schedule jobs, or persist tenant-specific subscription config.
 Agents should load [the repo skill](../skills/fincrawl/SKILL.md) before using a
 local archive. It describes binary discovery, read-only search, live sync
 boundaries, portable store expectations, and current Agent DX conventions.
+
+## Exit codes
+
+`fincrawl` returns a small, stable exit-code taxonomy. Agents should branch on
+the process exit status or the `error.code` field of the JSON error envelope
+rather than parsing error message text. The current taxonomy:
+
+| Code | Name            | Meaning                                                   |
+|------|-----------------|-----------------------------------------------------------|
+| 0    | `ok`            | Command completed without error.                          |
+| 1    | `runtime_error` | Runtime failure: I/O, store, network, or unexpected error.|
+| 2    | `usage_error`   | Invalid invocation, flag value, or argument.              |
+
+The same taxonomy is published in machine-readable form at the top level of
+`fincrawl describe --json` (`exit_codes[]`) so agents can introspect at
+runtime. Error responses use the JSON envelope
+`{"ok": false, "error": {"code", "message", "usage"}}` on stderr.

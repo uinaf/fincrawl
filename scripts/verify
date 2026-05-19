@@ -15,12 +15,21 @@ if ! diff -u "$before_tidy" "$after_tidy"; then
 	echo "go mod tidy changed go.mod or go.sum; run go mod tidy and commit the result" >&2
 	exit 1
 fi
-go test ./...
+coverage_out="$(mktemp)"
+trap 'rm -f "$before_tidy" "$after_tidy" "$coverage_out"' EXIT
+go test -count=1 -coverprofile="$coverage_out" ./...
+total="$(go tool cover -func="$coverage_out" | awk '/^total:/ { sub(/%$/, "", $3); print $3 }')"
+if [[ -z "$total" ]] || ! awk -v t="$total" 'BEGIN { exit (t+0 > 0) ? 0 : 1 }'; then
+	echo "coverage is ${total:-<empty>}%; refusing to ship a fully-untested tree" >&2
+	exit 1
+fi
+printf 'coverage %.1f%%\n' "$total"
 go vet ./...
-go test -race ./...
+go test -count=1 -race ./...
 ./scripts/smoke
 go run ./cmd/fincrawl guard --json
 ./scripts/release-check
+./scripts/lint
 git diff --check
 
 echo "verify ok"

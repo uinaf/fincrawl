@@ -378,6 +378,42 @@ func TestShowConversationPartsAreOptIn(t *testing.T) {
 	}
 }
 
+func TestDescribePublishesExitCodes(t *testing.T) {
+	want := map[string]int{"ok": 0, "runtime_error": 1, "usage_error": 2}
+
+	for _, args := range [][]string{
+		{"describe", "--json"},
+		{"describe", "search", "--json"},
+	} {
+		var stdout bytes.Buffer
+		var stderr bytes.Buffer
+		if err := Run(context.Background(), args, &stdout, &stderr); err != nil {
+			t.Fatalf("%v: %v", args, err)
+		}
+		var payload struct {
+			ExitCodes []struct {
+				Name string `json:"name"`
+				Code int    `json:"code"`
+			} `json:"exit_codes"`
+		}
+		if err := json.Unmarshal(stdout.Bytes(), &payload); err != nil {
+			t.Fatalf("%v unmarshal: %v\nstdout = %q", args, err, stdout.String())
+		}
+		if len(payload.ExitCodes) != len(want) {
+			t.Fatalf("%v exit_codes len = %d, want %d (payload = %+v)", args, len(payload.ExitCodes), len(want), payload.ExitCodes)
+		}
+		got := map[string]int{}
+		for _, c := range payload.ExitCodes {
+			got[c.Name] = c.Code
+		}
+		for name, code := range want {
+			if g, ok := got[name]; !ok || g != code {
+				t.Fatalf("%v exit_codes[%q] = %d (present=%v), want %d", args, name, g, ok, code)
+			}
+		}
+	}
+}
+
 func TestDescribeStoreVerifyAcceptsCommandWords(t *testing.T) {
 	var stdout bytes.Buffer
 	var stderr bytes.Buffer

@@ -16,8 +16,10 @@ import (
 	"github.com/uinaf/fincrawl/internal/store"
 )
 
-const defaultWorkspaceID = "intercom"
-const maxRateLimitRetries = 3
+const (
+	defaultWorkspaceID  = "intercom"
+	maxRateLimitRetries = 3
+)
 
 type IntercomSyncer struct {
 	Client    intercom.Client

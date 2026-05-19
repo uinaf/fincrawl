@@ -17,8 +17,11 @@ default user state. The smoke script already does this.
 ## Checks
 
 - `./scripts/smoke` exercises the real CLI offline with synthetic fixtures.
-- `./scripts/verify` runs module tidy checking, tests, vet, race tests, smoke,
-  guardrails, and whitespace checks.
+- `./scripts/verify` runs module tidy checking, tests with coverage report,
+  vet, race tests, smoke, guardrails, release-check, lint, and whitespace
+  checks. This is the canonical one-shot.
+- `./scripts/lint` runs `staticcheck`, `gofumpt -l`, `govulncheck`, and
+  `gosec` with pinned versions. Auto-installs the tools on first run.
 - `./scripts/release-check` validates the GoReleaser config used by CI.
 - `go run ./cmd/fincrawl guard --json` blocks committable plaintext archives,
   generated artifacts, secret-looking values, real 1Password references,

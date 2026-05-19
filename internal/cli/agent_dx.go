@@ -20,6 +20,19 @@ const commandSchemaVersion = "fincrawl.cli.v1"
 type cliSchema struct {
 	SchemaVersion string                   `json:"schema_version"`
 	Commands      map[string]commandSchema `json:"commands"`
+	ExitCodes     []exitCodeSchema         `json:"exit_codes"`
+}
+
+type exitCodeSchema struct {
+	Name        string `json:"name"`
+	Code        int    `json:"code"`
+	Description string `json:"description"`
+}
+
+var fincrawlExitCodes = []exitCodeSchema{
+	{Name: "ok", Code: 0, Description: "Command completed without error."},
+	{Name: "runtime_error", Code: 1, Description: "Runtime failure: I/O, store, network, or unexpected error."},
+	{Name: "usage_error", Code: 2, Description: "Invalid invocation, flag value, or argument."},
 }
 
 type commandSchema struct {
@@ -75,6 +88,7 @@ func describeCommands(command string) (cliSchema, error) {
 	command = strings.TrimSpace(command)
 	schema := cliSchema{
 		SchemaVersion: commandSchemaVersion,
+		ExitCodes:     fincrawlExitCodes,
 		Commands: map[string]commandSchema{
 			"doctor": {
 				Name:    "doctor",
@@ -467,10 +481,6 @@ func validateProviderID(kind, id string) error {
 		return fmt.Errorf("%s ID must not contain path traversal or encoded path separators", kind)
 	}
 	return nil
-}
-
-func validateArchiveOut(path string) error {
-	return validateArchiveArtifactPath("--out", path)
 }
 
 func validateArchiveArtifactPath(flag, path string) error {

@@ -23,13 +23,17 @@ type Result struct {
 	Scanned  int       `json:"scanned"`
 }
 
-const opScheme = "op" + "://"
-const maxContentScanBytes int64 = 2 * 1024 * 1024
+const (
+	opScheme                  = "op" + "://"
+	maxContentScanBytes int64 = 2 * 1024 * 1024
+)
 
-var secretPattern = regexp.MustCompile(`(?i)(bearer\s+[a-z0-9._~+/=-]{20,}|(api|access|intercom)[_-]?(token|key|secret)\s*[:=]\s*["']?[a-z0-9._~+/=-]{16,})`)
-var opRefPattern = regexp.MustCompile(regexp.QuoteMeta(opScheme) + `[^\s"')` + "`" + `]+`)
-var intercomConversationURLPattern = regexp.MustCompile(`(?i)https?://app\.intercom\.com/[^\s"')` + "`" + `]*(conversation|inbox)[^\s"')` + "`" + `]*`)
-var providerIdentifierPattern = regexp.MustCompile(`(?i)"(workspace_id|app_id|account_id|conversation_id|contact_id|admin_id|team_id)"\s*:\s*"[^"<][^"]{2,}"`)
+var (
+	secretPattern                  = regexp.MustCompile(`(?i)(bearer\s+[a-z0-9._~+/=-]{20,}|(api|access|intercom)[_-]?(token|key|secret)\s*[:=]\s*["']?[a-z0-9._~+/=-]{16,})`)
+	opRefPattern                   = regexp.MustCompile(regexp.QuoteMeta(opScheme) + `[^\s"')` + "`" + `]+`)
+	intercomConversationURLPattern = regexp.MustCompile(`(?i)https?://app\.intercom\.com/[^\s"')` + "`" + `]*(conversation|inbox)[^\s"')` + "`" + `]*`)
+	providerIdentifierPattern      = regexp.MustCompile(`(?i)"(workspace_id|app_id|account_id|conversation_id|contact_id|admin_id|team_id)"\s*:\s*"[^"<][^"]{2,}"`)
+)
 
 func Run(root string) (Result, error) {
 	repoRoot, err := gitRoot(root)
@@ -106,6 +110,7 @@ func scanWorkingTreeFile(root, clean string, result *Result) error {
 }
 
 func scanGitBlob(root, clean string, result *Result) error {
+	// #nosec G204 -- clean is a guard-filtered relative path; argv form, no shell.
 	sizeCmd := exec.Command("git", "cat-file", "-s", ":"+clean)
 	sizeCmd.Dir = root
 	sizeOut, err := sizeCmd.Output()
@@ -120,6 +125,7 @@ func scanGitBlob(root, clean string, result *Result) error {
 		scanLargeCandidate(clean, result)
 		return nil
 	}
+	// #nosec G204 -- clean is a guard-filtered relative path; argv form, no shell.
 	bodyCmd := exec.Command("git", "cat-file", "-p", ":"+clean)
 	bodyCmd.Dir = root
 	body, err := bodyCmd.Output()
@@ -198,6 +204,7 @@ func cleanPath(path string) string {
 }
 
 func gitRoot(start string) (string, error) {
+	// #nosec G204 -- start is the caller-supplied scan root; argv form, no shell.
 	cmd := exec.Command("git", "-C", start, "rev-parse", "--show-toplevel")
 	out, err := cmd.Output()
 	if err != nil {

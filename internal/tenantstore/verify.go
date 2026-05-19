@@ -255,11 +255,13 @@ func gitIgnored(ctx context.Context, root, rel string) bool {
 	if err != nil || canonicalPath(worktreeRoot) != canonicalPath(root) {
 		return false
 	}
+	// #nosec G204 -- root resolved from verified store path; rel is filepath-cleaned; argv form.
 	cmd := exec.CommandContext(ctx, "git", "-C", root, "check-ignore", "-q", "--", rel)
 	return cmd.Run() == nil
 }
 
 func gitWorktreeRoot(ctx context.Context, root string) (string, error) {
+	// #nosec G204 -- root resolved from verified store path; argv form, no shell.
 	cmd := exec.CommandContext(ctx, "git", "-C", root, "rev-parse", "--show-toplevel")
 	out, err := cmd.Output()
 	if err != nil {
