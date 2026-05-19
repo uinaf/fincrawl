@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -2046,5 +2047,54 @@ func TestStoreVerifyJSONReportsValidStore(t *testing.T) {
 	}
 	if !bytes.Contains(stdout.Bytes(), []byte(`"ok": true`)) {
 		t.Fatalf("store verify payload: %s", stdout.String())
+	}
+}
+
+func TestDoctorTextModeOKPrintsOK(t *testing.T) {
+	t.Setenv("FINCRAWL_HOME", t.TempDir())
+	t.Setenv(config.EnvAgeRecipient, "")
+	t.Setenv(config.EnvAgeIdentity, "")
+	t.Setenv(config.EnvIntercomCred, "")
+	var stdout, stderr bytes.Buffer
+	if err := Run(context.Background(), []string{"doctor", "--offline", "--json=false"}, &stdout, &stderr); err != nil {
+		t.Fatalf("doctor text: %v", err)
+	}
+	if !strings.Contains(stdout.String(), "ok") {
+		t.Fatalf("doctor text: %s", stdout.String())
+	}
+}
+
+func TestDoctorTextModeFailReturnsError(t *testing.T) {
+	t.Setenv("FINCRAWL_HOME", t.TempDir())
+	t.Setenv(config.EnvAgeRecipient, "not-a-recipient")
+	t.Setenv(config.EnvAgeIdentity, "")
+	t.Setenv(config.EnvIntercomCred, "")
+	var stdout, stderr bytes.Buffer
+	if err := Run(context.Background(), []string{"doctor", "--offline", "--json=false"}, &stdout, &stderr); err == nil {
+		t.Fatalf("expected doctor failure")
+	}
+}
+
+func TestGuardFailingExitsNonZero(t *testing.T) {
+	tmp := t.TempDir()
+	t.Setenv("FINCRAWL_HOME", t.TempDir())
+	t.Chdir(tmp)
+	// Initialize a git repo with a forbidden file to trigger a finding.
+	out, err := exec.Command("git", "init", "--quiet").CombinedOutput()
+	if err != nil {
+		t.Fatalf("git init: %v\n%s", err, out)
+	}
+	if out, err := exec.Command("git", "config", "user.email", "test@example.com").CombinedOutput(); err != nil {
+		t.Fatalf("git config: %v\n%s", err, out)
+	}
+	if out, err := exec.Command("git", "config", "user.name", "Test").CombinedOutput(); err != nil {
+		t.Fatalf("git config: %v\n%s", err, out)
+	}
+	if err := os.WriteFile(filepath.Join(tmp, ".env"), []byte("X=y\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	var stdout, stderr bytes.Buffer
+	if err := Run(context.Background(), []string{"guard", "--json"}, &stdout, &stderr); err == nil {
+		t.Fatalf("expected guard failure with finding")
 	}
 }
