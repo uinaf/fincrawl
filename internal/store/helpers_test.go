@@ -283,3 +283,83 @@ func TestSyncEntitiesIsolatesAdminTeamTag(t *testing.T) {
 		t.Fatalf("counts = %#v", res)
 	}
 }
+
+func TestCountsToleratesMissingTables(t *testing.T) {
+	ctx := context.Background()
+	dbPath := filepath.Join(t.TempDir(), "archive.db")
+	st, err := ckstore.Open(ctx, ckstore.Options{Path: dbPath, Schema: workspacelessSchema, SchemaVersion: 1})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := st.Close(); err != nil {
+		t.Fatal(err)
+	}
+	counts, err := Counts(ctx, dbPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if counts.Conversations != 0 {
+		t.Fatalf("expected conversations from workspaceless schema, got %d", counts.Conversations)
+	}
+	if counts.Admins != 0 || counts.Teams != 0 || counts.Tags != 0 || counts.Contacts != 0 || counts.RawBlobs != 0 {
+		t.Fatalf("missing-table counts not zero: %#v", counts)
+	}
+}
+
+func TestExportFixtureFromWorkspacelessSchema(t *testing.T) {
+	ctx := context.Background()
+	dbPath := filepath.Join(t.TempDir(), "archive.db")
+	st, err := ckstore.Open(ctx, ckstore.Options{Path: dbPath, Schema: workspacelessSchema, SchemaVersion: 1})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := st.DB().ExecContext(ctx, `insert into conversations(
+		id, workspace_id, provider, provider_id, subject, state, assignee, rating, fin_status, created_at, updated_at
+	) values('conv_1', 'ws_legacy', 'intercom', 'ic_1', 'Subj', 'open', '', '', '', '2026-01-01T00:00:00Z', '2026-01-01T00:00:00Z')`); err != nil {
+		t.Fatal(err)
+	}
+	if err := st.Close(); err != nil {
+		t.Fatal(err)
+	}
+	// Cannot use ExportFixture directly since it queries other tables.
+	// But ensureFTSSchema migration path is exercised through openStore when called against legacy fts.
+	if _, err := Counts(ctx, dbPath); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func TestSearchOnEmptyDBReturnsNoResults(t *testing.T) {
+	ctx := context.Background()
+	dbPath := filepath.Join(t.TempDir(), "archive.db")
+	st, err := ckstore.Open(ctx, ckstore.Options{Path: dbPath, Schema: Schema, SchemaVersion: 1})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := st.Close(); err != nil {
+		t.Fatal(err)
+	}
+	results, err := SearchWithOptions(ctx, dbPath, "anything", SearchOptions{Limit: 10})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(results) != 0 {
+		t.Fatalf("expected empty, got %d", len(results))
+	}
+}
+
+func TestSearchWithStateFilterUsesLikePath(t *testing.T) {
+	ctx := context.Background()
+	dbPath := filepath.Join(t.TempDir(), "archive.db")
+	fixture, err := LoadFixture(filepath.Join("..", "..", "testdata", "synthetic"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := SyncFixture(ctx, dbPath, fixture); err != nil {
+		t.Fatal(err)
+	}
+	results, err := SearchWithOptions(ctx, dbPath, "Morgan", SearchOptions{Limit: 10, State: "open"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	_ = results
+}

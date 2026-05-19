@@ -373,3 +373,88 @@ func TestJSONLBytesProducesNewlineDelimited(t *testing.T) {
 		t.Fatalf("newlines = %d, want 2", got)
 	}
 }
+
+func TestWriteEncryptedJSONLFailsOnUnwritableDir(t *testing.T) {
+	identity, err := age.GenerateX25519Identity()
+	if err != nil {
+		t.Fatal(err)
+	}
+	parent := t.TempDir()
+	ro := filepath.Join(parent, "ro")
+	if err := os.Mkdir(ro, 0o555); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = os.Chmod(ro, 0o755) })
+	out := filepath.Join(ro, "x.jsonl.zst.age")
+	if err := WriteEncryptedJSONL(out, identity.Recipient().String(), nil); err == nil {
+		t.Fatalf("expected write failure")
+	}
+}
+
+func TestReadEncryptedJSONLRejectsCorruptCipher(t *testing.T) {
+	identity, err := age.GenerateX25519Identity()
+	if err != nil {
+		t.Fatal(err)
+	}
+	out := filepath.Join(t.TempDir(), "corrupt.jsonl.zst.age")
+	if err := os.WriteFile(out, []byte("not a real age stream"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := ReadEncryptedJSONL(out, identity.String()); err == nil {
+		t.Fatalf("expected decryption failure")
+	}
+}
+
+func TestParseRecipientAcceptsSSHKey(t *testing.T) {
+	pub, priv, err := ed25519.GenerateKey(rand.Reader)
+	if err != nil {
+		t.Fatal(err)
+	}
+	_ = priv
+	authorized, err := ssh.NewPublicKey(pub)
+	if err != nil {
+		t.Fatal(err)
+	}
+	recipient := strings.TrimSpace(string(ssh.MarshalAuthorizedKey(authorized)))
+	if _, err := ParseRecipient(recipient); err != nil {
+		t.Fatalf("ssh recipient: %v", err)
+	}
+}
+
+func TestParseIdentitiesAcceptsSSHIdentity(t *testing.T) {
+	_, priv, err := ed25519.GenerateKey(rand.Reader)
+	if err != nil {
+		t.Fatal(err)
+	}
+	keyBytes, err := x509.MarshalPKCS8PrivateKey(priv)
+	if err != nil {
+		t.Fatal(err)
+	}
+	pemBytes := pem.EncodeToMemory(&pem.Block{Type: "PRIVATE KEY", Bytes: keyBytes})
+	if _, err := ParseIdentities(string(pemBytes)); err != nil {
+		t.Fatalf("ssh identity: %v", err)
+	}
+}
+
+func TestFixtureRecordsRoundTripIncludesEntities(t *testing.T) {
+	fixture := store.Fixture{
+		Workspace: store.Workspace{ID: "ws", Provider: "intercom", Name: "ws", CreatedAt: "2026-01-01T00:00:00Z"},
+		Entities: store.Entities{
+			Admins:   []store.Admin{{ID: "adm_1", Provider: "intercom", ProviderID: "a1", Name: "Riley"}},
+			Teams:    []store.Team{{ID: "team_1", Provider: "intercom", ProviderID: "t1", Name: "Support"}},
+			Tags:     []store.ProviderTag{{ID: "tag_1", Provider: "intercom", ProviderID: "pt1", Name: "billing"}},
+			Contacts: []store.Contact{{ID: "con_1", Provider: "intercom", ProviderID: "c1", Name: "Jordan"}},
+		},
+	}
+	records := FixtureRecords(fixture)
+	if len(records) < 5 {
+		t.Fatalf("records = %d, want at least 5", len(records))
+	}
+	back, err := RecordsFixture(records)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(back.Entities.Admins) != 1 || len(back.Entities.Teams) != 1 || len(back.Entities.Tags) != 1 || len(back.Entities.Contacts) != 1 {
+		t.Fatalf("round trip lost entities: %#v", back.Entities)
+	}
+}
