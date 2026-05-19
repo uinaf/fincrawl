@@ -22,7 +22,7 @@ go test -count=1 -coverprofile="$coverage_out" ./...
 # Exclude the CLI entry point — main() exits the process, not unit-testable.
 grep -v '^github.com/uinaf/fincrawl/cmd/fincrawl/' "$coverage_out" >"$coverage_filtered"
 total="$(go tool cover -func="$coverage_filtered" | awk '/^total:/ { sub(/%$/, "", $3); print $3 }')"
-floor="${FINCRAWL_COVERAGE_FLOOR:-80}"
+floor="${FINCRAWL_COVERAGE_FLOOR:-85}"
 if [[ -z "$total" ]] || ! awk -v t="$total" 'BEGIN { exit (t+0 > 0) ? 0 : 1 }'; then
 	echo "coverage is ${total:-<empty>}%; refusing to ship a fully-untested tree" >&2
 	exit 1

@@ -18,10 +18,12 @@ default user state. The smoke script already does this.
 
 - `./scripts/smoke` exercises the real CLI offline with synthetic fixtures.
 - `./scripts/verify` runs module tidy checking, tests with coverage report
-  (enforced at `FINCRAWL_COVERAGE_FLOOR=80` by default; target is 90),
+  (enforced at `FINCRAWL_COVERAGE_FLOOR=85` by default; target is 90),
   vet, race tests, smoke, guardrails, release-check, lint, and whitespace
   checks. This is the canonical one-shot. Override the floor via
-  `FINCRAWL_COVERAGE_FLOOR=N ./scripts/verify` when ratcheting.
+  `FINCRAWL_COVERAGE_FLOOR=N ./scripts/verify` when ratcheting. The
+  remaining gap to 90 is in defensive SQL-error returns; closing it needs
+  a driver wrapper that can inject failures.
 - `./scripts/lint` runs `staticcheck`, `gofumpt -l`, `govulncheck`, and
   `gosec` with pinned versions. Auto-installs the tools on first run.
 - `./scripts/release-check` validates the GoReleaser config used by CI.
