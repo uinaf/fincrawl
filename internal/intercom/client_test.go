@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"net/http"
+	"strings"
 	"net/http/httptest"
 	"testing"
 	"time"
@@ -490,5 +491,62 @@ func TestDoJSONRetriesOn5xx(t *testing.T) {
 	}
 	if attempts < 2 {
 		t.Fatalf("attempts = %d, expected retry", attempts)
+	}
+}
+
+func TestDoJSONRetriesExhaust(t *testing.T) {
+	var attempts int
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		attempts++
+		http.Error(w, "transient", http.StatusBadGateway)
+	}))
+	defer server.Close()
+	client := Client{
+		BaseURL:     server.URL,
+		HTTPClient:  server.Client(),
+		MaxAttempts: 2,
+		Sleep:       func(ctx context.Context, d time.Duration) error { return nil },
+	}
+	_, err := client.SearchConversations(context.Background(), time.Unix(1, 0), time.Unix(2, 0), "")
+	if err == nil {
+		t.Fatalf("expected exhausted retries to return error")
+	}
+	if attempts != 2 {
+		t.Fatalf("attempts = %d, want 2", attempts)
+	}
+}
+
+func TestDoJSONReadsErrorBody(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusBadRequest)
+		w.Write([]byte("validation failure"))
+	}))
+	defer server.Close()
+	client := Client{BaseURL: server.URL, HTTPClient: server.Client()}
+	_, err := client.SearchConversations(context.Background(), time.Unix(1, 0), time.Unix(2, 0), "")
+	statusErr, ok := err.(HTTPStatusError)
+	if !ok {
+		t.Fatalf("err = %T %v", err, err)
+	}
+	if !strings.Contains(statusErr.Body, "validation failure") {
+		t.Fatalf("body = %q", statusErr.Body)
+	}
+}
+
+func TestResetDelayHonorsResetHeader(t *testing.T) {
+	now := time.Unix(100, 0)
+	hdr := http.Header{}
+	hdr.Set("X-RateLimit-Reset", "115")
+	if d := resetDelay(hdr, now); d != 15*time.Second {
+		t.Fatalf("reset delay = %s", d)
+	}
+	emptyHdr := http.Header{}
+	if d := resetDelay(emptyHdr, now); d != 0 {
+		t.Fatalf("empty reset delay = %s", d)
+	}
+	badHdr := http.Header{}
+	badHdr.Set("X-RateLimit-Reset", "not-a-number")
+	if d := resetDelay(badHdr, now); d != 0 {
+		t.Fatalf("bad reset delay = %s", d)
 	}
 }

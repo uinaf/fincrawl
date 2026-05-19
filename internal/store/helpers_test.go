@@ -526,3 +526,62 @@ func TestFtsHasColumnsReportsTrueForCurrentSchema(t *testing.T) {
 		t.Fatalf("expected false for missing column")
 	}
 }
+
+func TestSyncEntitiesPropagatesCancelledContext(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+	dbPath := filepath.Join(t.TempDir(), "archive.db")
+	if _, err := SyncEntities(ctx, dbPath, Workspace{ID: "ws", Provider: "intercom", Name: "ws"}, Entities{
+		Admins: []Admin{{ProviderID: "a1"}},
+	}); err == nil {
+		t.Fatalf("expected cancelled context error")
+	}
+}
+
+func TestSyncConversationsPropagatesCancelledContext(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+	dbPath := filepath.Join(t.TempDir(), "archive.db")
+	if _, err := SyncConversations(ctx, dbPath, Workspace{ID: "ws", Provider: "intercom", Name: "ws"}, []Conversation{
+		{ID: "c1", ProviderID: "ic_c1", CreatedAt: "2026-01-01T00:00:00Z", UpdatedAt: "2026-01-01T00:00:00Z"},
+	}); err == nil {
+		t.Fatalf("expected cancelled context error")
+	}
+}
+
+func TestCountsPropagatesCancelledContext(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+	dbPath := filepath.Join(t.TempDir(), "archive.db")
+	// Create the database first using a fresh context
+	if _, err := SyncFixture(context.Background(), dbPath, Fixture{Workspace: Workspace{ID: "ws", Provider: "intercom", Name: "ws"}}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := Counts(ctx, dbPath); err == nil {
+		t.Fatalf("expected cancelled context error")
+	}
+}
+
+func TestGetConversationPropagatesCancelledContext(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+	dbPath := filepath.Join(t.TempDir(), "archive.db")
+	if _, err := SyncFixture(context.Background(), dbPath, Fixture{Workspace: Workspace{ID: "ws", Provider: "intercom", Name: "ws"}}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := GetConversation(ctx, dbPath, "ic_anything", ConversationDetailOptions{}); err == nil {
+		t.Fatalf("expected cancelled context error")
+	}
+}
+
+func TestExportFixturePropagatesCancelledContext(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+	dbPath := filepath.Join(t.TempDir(), "archive.db")
+	if _, err := SyncFixture(context.Background(), dbPath, Fixture{Workspace: Workspace{ID: "ws", Provider: "intercom", Name: "ws"}}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := ExportFixture(ctx, dbPath); err == nil {
+		t.Fatalf("expected cancelled context error")
+	}
+}
