@@ -50,6 +50,22 @@ type commandContext struct {
 
 const liveHTTPTimeout = 90 * time.Second
 
+func withLock(dbPath string, fn func() error) error {
+	lck, err := lock.Acquire(dbPath)
+	if err != nil {
+		return err
+	}
+	runErr := fn()
+	releaseErr := lck.Release()
+	if runErr != nil {
+		return runErr
+	}
+	if releaseErr != nil {
+		return fmt.Errorf("release lock: %w", releaseErr)
+	}
+	return nil
+}
+
 type kongExit int
 
 func Run(ctx context.Context, args []string, stdout, stderr io.Writer) (err error) {
@@ -251,13 +267,12 @@ func (cmd syncCmd) Run(ctx commandContext) error {
 		if err := config.EnsureDirs(rt); err != nil {
 			return err
 		}
-		lck, err := lock.Acquire(rt.Config.DBPath)
-		if err != nil {
-			return err
-		}
-		defer lck.Release()
-		result, err := store.SyncFixture(ctx, rt.Config.DBPath, fixture)
-		if err != nil {
+		var result store.SyncResult
+		if err := withLock(rt.Config.DBPath, func() error {
+			var syncErr error
+			result, syncErr = store.SyncFixture(ctx, rt.Config.DBPath, fixture)
+			return syncErr
+		}); err != nil {
 			return err
 		}
 		return writeMaybeJSON(ctx.stdout, cmd.JSON, result)
@@ -307,11 +322,6 @@ func (cmd syncCmd) Run(ctx commandContext) error {
 		if config.IntercomToken() == "" {
 			return fmt.Errorf("missing %s for live Intercom sync", config.EnvIntercomCred)
 		}
-		lck, err := lock.Acquire(rt.Config.DBPath)
-		if err != nil {
-			return err
-		}
-		defer lck.Release()
 		client := intercom.Client{
 			BaseURL:      config.IntercomBaseURL(),
 			Token:        config.IntercomToken(),
@@ -332,16 +342,19 @@ func (cmd syncCmd) Run(ctx commandContext) error {
 		}
 		s := syncer.IntercomSyncer{Client: client}
 		var result store.SyncResult
-		if cmd.Conversation != "" {
-			result, err = s.SyncConversation(ctx, rt.Config.DBPath, cmd.Conversation)
-		} else if cmd.Entities {
-			result, err = s.SyncEntities(ctx, rt.Config.DBPath, syncer.EntitySyncOptions{IncludeContacts: cmd.Contacts, ContactLimit: cmd.Limit})
-		} else if cmd.Resume {
-			result, err = s.ResumeTail(ctx, rt.Config.DBPath, cmd.Limit)
-		} else {
-			result, err = s.SyncUpdatedSince(ctx, rt.Config.DBPath, updatedAfter, updatedBefore, cmd.Limit)
-		}
-		if err != nil {
+		if err := withLock(rt.Config.DBPath, func() error {
+			var syncErr error
+			if cmd.Conversation != "" {
+				result, syncErr = s.SyncConversation(ctx, rt.Config.DBPath, cmd.Conversation)
+			} else if cmd.Entities {
+				result, syncErr = s.SyncEntities(ctx, rt.Config.DBPath, syncer.EntitySyncOptions{IncludeContacts: cmd.Contacts, ContactLimit: cmd.Limit})
+			} else if cmd.Resume {
+				result, syncErr = s.ResumeTail(ctx, rt.Config.DBPath, cmd.Limit)
+			} else {
+				result, syncErr = s.SyncUpdatedSince(ctx, rt.Config.DBPath, updatedAfter, updatedBefore, cmd.Limit)
+			}
+			return syncErr
+		}); err != nil {
 			return err
 		}
 		return writeMaybeJSON(ctx.stdout, cmd.JSON, result)
@@ -564,13 +577,12 @@ func (cmd publishCmd) Run(ctx commandContext) error {
 		records := archive.FixtureRecords(fixture)
 		return writeMaybeJSON(ctx.stdout, cmd.JSON, archiveDryRun("publish", cmd.Out, len(records)))
 	}
-	lck, err := lock.Acquire(rt.Config.DBPath)
-	if err != nil {
-		return err
-	}
-	defer lck.Release()
-	fixture, err := store.ExportFixture(ctx, rt.Config.DBPath)
-	if err != nil {
+	var fixture store.Fixture
+	if err := withLock(rt.Config.DBPath, func() error {
+		var exportErr error
+		fixture, exportErr = store.ExportFixture(ctx, rt.Config.DBPath)
+		return exportErr
+	}); err != nil {
 		return err
 	}
 	records := archive.FixtureRecords(fixture)
@@ -622,13 +634,12 @@ func (cmd importCmd) Run(ctx commandContext) error {
 	if err := config.EnsureDirs(rt); err != nil {
 		return err
 	}
-	lck, err := lock.Acquire(rt.Config.DBPath)
-	if err != nil {
-		return err
-	}
-	defer lck.Release()
-	result, err := store.SyncFixture(ctx, rt.Config.DBPath, fixture)
-	if err != nil {
+	var result store.SyncResult
+	if err := withLock(rt.Config.DBPath, func() error {
+		var syncErr error
+		result, syncErr = store.SyncFixture(ctx, rt.Config.DBPath, fixture)
+		return syncErr
+	}); err != nil {
 		return err
 	}
 	return writeMaybeJSON(ctx.stdout, cmd.JSON, importResult{Input: cmd.In, Records: len(records), Sync: result})
@@ -709,22 +720,22 @@ func (cmd subscribeCmd) Run(ctx commandContext) error {
 	if err := config.EnsureDirs(rt); err != nil {
 		return err
 	}
-	lck, err := lock.Acquire(rt.Config.DBPath)
-	if err != nil {
-		return err
-	}
-	defer lck.Release()
 	aggregate := store.SyncResult{}
-	for index, item := range pending {
-		syncResult, err := store.SyncFixture(ctx, rt.Config.DBPath, item.fixture)
-		if err != nil {
-			return fmt.Errorf("import tenant store snapshot %s: %w", item.snapshot.Path, err)
+	if err := withLock(rt.Config.DBPath, func() error {
+		for index, item := range pending {
+			syncResult, err := store.SyncFixture(ctx, rt.Config.DBPath, item.fixture)
+			if err != nil {
+				return fmt.Errorf("import tenant store snapshot %s: %w", item.snapshot.Path, err)
+			}
+			mergeSyncResult(&aggregate, syncResult)
+			result.Snapshots[index].Records = len(item.records)
+			result.Snapshots[index].Imported = true
+			result.Snapshots[index].Path = item.snapshot.Path
+			result.ImportedSnapshots++
 		}
-		mergeSyncResult(&aggregate, syncResult)
-		result.Snapshots[index].Records = len(item.records)
-		result.Snapshots[index].Imported = true
-		result.Snapshots[index].Path = item.snapshot.Path
-		result.ImportedSnapshots++
+		return nil
+	}); err != nil {
+		return err
 	}
 	result.Records = totalRecords
 	result.Sync = &aggregate

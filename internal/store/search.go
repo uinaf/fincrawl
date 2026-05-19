@@ -57,10 +57,25 @@ func SearchWithOptions(ctx context.Context, dbPath, query string, opts SearchOpt
 	}
 	defer st.Close()
 	results, err := searchFTS(ctx, st.DB(), query, opts)
-	if err == nil && len(results) > 0 {
-		return results, nil
+	if err == nil {
+		if len(results) > 0 {
+			return results, nil
+		}
+		return searchLike(ctx, st.DB(), query, opts)
+	}
+	if !isLegacyFTSError(err) {
+		return nil, fmt.Errorf("search fts: %w", err)
 	}
 	return searchLike(ctx, st.DB(), query, opts)
+}
+
+func isLegacyFTSError(err error) bool {
+	if err == nil {
+		return false
+	}
+	msg := err.Error()
+	return strings.Contains(msg, "no such table: conversation_fts") ||
+		strings.Contains(msg, "no such module: fts5")
 }
 
 func normalizeSearchOptions(opts SearchOptions) SearchOptions {

@@ -347,6 +347,31 @@ func TestSearchOnEmptyDBReturnsNoResults(t *testing.T) {
 	}
 }
 
+func TestSearchFTSErrorDoesNotFallbackToLike(t *testing.T) {
+	ctx := context.Background()
+	dbPath := filepath.Join(t.TempDir(), "archive.db")
+	fixture, err := LoadFixture(filepath.Join("..", "..", "testdata", "synthetic"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := SyncFixture(ctx, dbPath, fixture); err != nil {
+		t.Fatal(err)
+	}
+	st, err := ckstore.Open(ctx, ckstore.Options{Path: dbPath, Schema: Schema, SchemaVersion: SchemaVersion})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := st.DB().ExecContext(ctx, `drop table conversations`); err != nil {
+		t.Fatal(err)
+	}
+	if err := st.Close(); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := SearchWithOptions(ctx, dbPath, "invoice", SearchOptions{Limit: 10}); err == nil || !strings.Contains(err.Error(), "search fts") {
+		t.Fatalf("SearchWithOptions error = %v, want FTS error", err)
+	}
+}
+
 func TestSearchWithStateFilterUsesLikePath(t *testing.T) {
 	ctx := context.Background()
 	dbPath := filepath.Join(t.TempDir(), "archive.db")
