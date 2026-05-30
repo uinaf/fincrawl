@@ -6,14 +6,13 @@ require (
 	filippo.io/age v1.3.1
 	github.com/alecthomas/kong v1.13.0
 	github.com/klauspost/compress v1.18.1
-	github.com/openclaw/crawlkit v0.5.2
+	github.com/openclaw/crawlkit v0.11.0
 	golang.org/x/crypto v0.45.0
 )
 
 require (
 	filippo.io/edwards25519 v1.1.0 // indirect
 	filippo.io/hpke v0.4.0 // indirect
-	github.com/adrg/xdg v0.5.3 // indirect
 	github.com/dustin/go-humanize v1.0.1 // indirect
 	github.com/google/uuid v1.6.0 // indirect
 	github.com/mattn/go-isatty v0.0.22 // indirect
@@ -21,8 +20,8 @@ require (
 	github.com/pelletier/go-toml/v2 v2.3.1 // indirect
 	github.com/remyoudompheng/bigfft v0.0.0-20230129092748-24d4a6f8daec // indirect
 	golang.org/x/sys v0.42.0 // indirect
-	modernc.org/libc v1.72.0 // indirect
+	modernc.org/libc v1.72.3 // indirect
 	modernc.org/mathutil v1.7.1 // indirect
 	modernc.org/memory v1.11.0 // indirect
-	modernc.org/sqlite v1.50.0 // indirect
+	modernc.org/sqlite v1.50.1 // indirect
 )
