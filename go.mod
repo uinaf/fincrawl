@@ -1,13 +1,13 @@
 module github.com/uinaf/fincrawl
 
-go 1.26.3
+go 1.26.4
 
 require (
 	filippo.io/age v1.3.1
 	github.com/alecthomas/kong v1.13.0
 	github.com/klauspost/compress v1.18.1
 	github.com/openclaw/crawlkit v0.5.2
-	golang.org/x/crypto v0.45.0
+	golang.org/x/crypto v0.52.0
 )
 
 require (
@@ -20,7 +20,7 @@ require (
 	github.com/ncruces/go-strftime v1.0.0 // indirect
 	github.com/pelletier/go-toml/v2 v2.3.1 // indirect
 	github.com/remyoudompheng/bigfft v0.0.0-20230129092748-24d4a6f8daec // indirect
-	golang.org/x/sys v0.42.0 // indirect
+	golang.org/x/sys v0.45.0 // indirect
 	modernc.org/libc v1.72.0 // indirect
 	modernc.org/mathutil v1.7.1 // indirect
 	modernc.org/memory v1.11.0 // indirect
