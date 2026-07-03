@@ -41,7 +41,11 @@ func LoadRuntime() (Runtime, error) {
 	}
 	app := App
 	if home := strings.TrimSpace(os.Getenv(EnvHome)); home != "" {
-		app.BaseDir = home
+		absHome, err := filepath.Abs(home)
+		if err != nil {
+			return Runtime{}, err
+		}
+		app.BaseDir = absHome
 		app.PlatformDirs = false
 	}
 	paths, err := app.DefaultPaths()

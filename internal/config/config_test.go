@@ -78,11 +78,15 @@ func TestEnvAccessorsTrimAndReadFromProcess(t *testing.T) {
 
 func TestEnsureDirsCreatesRuntimePaths(t *testing.T) {
 	root := t.TempDir()
-	t.Setenv(EnvHome, root)
+	t.Chdir(root)
+	t.Setenv(EnvHome, "runtime")
 	t.Setenv(App.ConfigEnv, "")
 	rt, err := LoadRuntime()
 	if err != nil {
 		t.Fatal(err)
+	}
+	if rt.Config.DBPath != filepath.Join(root, "runtime", "fincrawl.db") {
+		t.Fatalf("db path = %q, want runtime home under %q", rt.Config.DBPath, root)
 	}
 	if err := EnsureDirs(rt); err != nil {
 		t.Fatal(err)
